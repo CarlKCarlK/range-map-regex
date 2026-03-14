@@ -39,6 +39,18 @@ pub struct Dfa {
 }
 
 impl Dfa {
+    pub fn empty() -> Self {
+        Dfa::new(StateKind::Rejecting)
+    }
+
+    pub fn epsilon() -> Self {
+        let mut dfa = Dfa::new(StateKind::Accepting);
+        let dead = dfa.new_state(StateKind::Rejecting);
+        dfa.set_transitions(dfa.start, RangeMapBlaze::universe_with(&dead));
+        dfa.assert_invariants();
+        dfa
+    }
+
     fn new(start_kind: StateKind) -> Self {
         let start = StateId { id: 0 };
         let dfa = Self {
@@ -87,7 +99,7 @@ impl Dfa {
         self.state_kinds[state.id()] == StateKind::Accepting
     }
 
-    pub fn from_accept_set(range: RangeInclusive<char>) -> Self {
+    pub fn from_char_range(range: RangeInclusive<char>) -> Self {
         let mut dfa = Dfa::new(StateKind::Rejecting);
         dfa.assert_invariants();
 
@@ -116,7 +128,8 @@ impl Dfa {
         self.assert_invariants();
         other.assert_invariants();
         // Union product: the combined start state is accepting if either input start state accepts.
-        let start_kind = self.state_kinds[self.start.id()].union(other.state_kinds[other.start.id()]);
+        let start_kind =
+            self.state_kinds[self.start.id()].union(other.state_kinds[other.start.id()]);
         let mut dfa = Dfa::new(start_kind);
 
         let mut pair_to_state: IndexMap<(StateId, StateId), StateId> = IndexMap::new();
@@ -220,7 +233,7 @@ impl Dfa {
                     .collect();
                 let signature = Signature {
                     state_kind: self.state_kinds[state],
-                transitions,
+                    transitions,
                 };
                 let block = if let Some(existing) = signature_to_block.get(&signature) {
                     *existing
@@ -265,24 +278,21 @@ impl Dfa {
             if block == start_block {
                 continue;
             }
-            let state_kind = self.state_kinds
-                [representative[block].expect("block has a representative")];
+            let state_kind =
+                self.state_kinds[representative[block].expect("block has a representative")];
             block_to_state[block] = Some(minimized.new_state(state_kind));
         }
 
         for block in 0..block_count {
             let rep = representative[block].expect("block has a representative");
             let state = block_to_state[block].expect("block has a mapped state");
-            let mapped = self.transitions[rep]
-                .range_values()
-                .map(|(range, next)| {
-                    (
-                        range,
-                        block_to_state
-                            [block_of[next.id()].expect("reachable state has a block")]
+            let mapped = self.transitions[rep].range_values().map(|(range, next)| {
+                (
+                    range,
+                    block_to_state[block_of[next.id()].expect("reachable state has a block")]
                         .expect("block has a mapped state"),
-                    )
-                });
+                )
+            });
             minimized.set_transitions(state, RangeMapBlaze::from_iter(mapped));
         }
 

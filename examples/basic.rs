@@ -11,12 +11,22 @@ fn main() {
 }
 
 fn inner_main() -> io::Result<()> {
-    let lower_case = Dfa::from_accept_set('a'..='z');
+    let empty = Dfa::empty();
+    assert!(!empty.is_match(""));
+    assert!(!empty.is_match("a"));
+    display_dfa(&empty)?;
+
+    let epsilon = Dfa::epsilon();
+    assert!(epsilon.is_match(""));
+    assert!(!epsilon.is_match("a"));
+    display_dfa(&epsilon)?;
+
+    let lower_case = Dfa::from_char_range('a'..='z');
 
     assert!(lower_case.is_match("a"));
     assert!(!lower_case.is_match("A"));
 
-    let upper_case = Dfa::from_accept_set('A'..='Z');
+    let upper_case = Dfa::from_char_range('A'..='Z');
     assert!(upper_case.is_match("A"));
     assert!(!upper_case.is_match("a"));
 
