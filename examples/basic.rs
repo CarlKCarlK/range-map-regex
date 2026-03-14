@@ -1,7 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::io;
+use std::ops::RangeInclusive;
 
-use range_set_blaze::{RangeMapBlaze, RangeSetBlaze, SortedDisjointMap};
+use range_set_blaze::{RangeMapBlaze, SortedDisjointMap};
+
+const CHAR_UNIVERSE: RangeInclusive<char> = char::MIN..=char::MAX;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct StateId(usize);
@@ -21,58 +24,81 @@ struct Dfa {
 impl Dfa {
     fn new(start_kind: StateKind) -> Self {
         let start = StateId(0);
-        Self {
+        let dfa = Self {
             start,
             state_kinds: vec![start_kind],
-            transitions: vec![RangeMapBlaze::from_iter([(char::MIN..=char::MAX, start)])],
-        }
+            transitions: vec![RangeMapBlaze::universe_with(&start)],
+        };
+        dfa.assert_invariants();
+        dfa
     }
 
     fn new_state(&mut self, state_kind: StateKind) -> StateId {
+        self.assert_invariants();
         let id = StateId(self.transitions.len());
         self.state_kinds.push(state_kind);
-        self.transitions
-            .push(RangeMapBlaze::from_iter([(char::MIN..=char::MAX, id)]));
+        self.transitions.push(RangeMapBlaze::universe_with(&id));
+        assert!(self.transitions[id.0].is_universal());
+        self.assert_invariants();
         id
     }
 
     fn start(&self) -> StateId {
-        self.start
+        self.assert_invariants();
+        let start = self.start;
+        self.assert_invariants();
+        start
     }
 
     fn set_transitions(&mut self, state: StateId, map: RangeMapBlaze<char, StateId>) {
-        let mut total_map = RangeMapBlaze::from_iter([(char::MIN..=char::MAX, state)]);
+        self.assert_invariants();
+        let mut total_map = RangeMapBlaze::universe_with(&state);
         total_map.extend(map.range_values().map(|(range, dst)| (range, *dst)));
         self.transitions[state.0] = total_map;
+        assert!(self.transitions[state.0].is_universal());
+        self.assert_invariants();
     }
 
+    fn assert_invariants(&self) {
+        assert_eq!(self.state_kinds.len(), self.transitions.len());
+        assert!(self.start.0 < self.transitions.len());
+        for transition_map in &self.transitions {
+            assert!(transition_map.is_universal());
+        }
+    }
 }
 
 impl Dfa {
-    fn from_accept_set(accept_set: RangeSetBlaze<char>) -> Self {
+    fn from_accept_set(range: RangeInclusive<char>) -> Self {
         let mut dfa = Dfa::new(StateKind::Rejecting);
-        let start = dfa.start();
-        let accept = dfa.new_state(StateKind::Accepting);
+        dfa.assert_invariants();
         let dead = dfa.new_state(StateKind::Rejecting);
 
-        let mut start_map = RangeMapBlaze::from_iter([(char::MIN..=char::MAX, dead)]);
-        start_map.extend(accept_set.ranges().map(|range| (range, accept)));
+        let accept = dfa.new_state(StateKind::Accepting);
+        dfa.set_transitions(accept, RangeMapBlaze::universe_with(&dead));
 
-        let sink_map = RangeMapBlaze::from_iter([(char::MIN..=char::MAX, dead)]);
+        dfa.set_transitions(
+            dfa.start(),
+            RangeMapBlaze::from_iter([
+                (CHAR_UNIVERSE, dead), // send all to dead state
+                (range, accept),       // except the accept range
+            ]),
+        );
 
-        dfa.set_transitions(start, start_map);
-        dfa.set_transitions(accept, sink_map.clone());
-        dfa.set_transitions(dead, sink_map);
+        dfa.assert_invariants();
 
         dfa
     }
 
     fn union(&self, other: &Self) -> Self {
-        let start_kind = if self.is_accepting_state(self.start) || other.is_accepting_state(other.start) {
-            StateKind::Accepting
-        } else {
-            StateKind::Rejecting
-        };
+        self.assert_invariants();
+        other.assert_invariants();
+        let start_kind =
+            if self.is_accepting_state(self.start) || other.is_accepting_state(other.start) {
+                StateKind::Accepting
+            } else {
+                StateKind::Rejecting
+            };
         let mut dfa = Dfa::new(start_kind);
         let mut pair_to_state: HashMap<(StateId, StateId), StateId> = HashMap::new();
         let mut queue: VecDeque<(StateId, StateId)> = VecDeque::new();
@@ -87,20 +113,23 @@ impl Dfa {
                 .get(&(left_state, right_state))
                 .expect("queued state is known");
 
-            let transition_pairs =
-                merge_transition_maps(&self.transitions[left_state.0], &other.transitions[right_state.0]);
+            let transition_pairs = merge_transition_maps(
+                &self.transitions[left_state.0],
+                &other.transitions[right_state.0],
+            );
 
             let mut merged_out = Vec::new();
             for (range, dst_pair) in transition_pairs.range_values() {
                 let next = if let Some(existing) = pair_to_state.get(&dst_pair) {
                     *existing
                 } else {
-                    let state_kind =
-                        if self.is_accepting_state(dst_pair.0) || other.is_accepting_state(dst_pair.1) {
-                            StateKind::Accepting
-                        } else {
-                            StateKind::Rejecting
-                        };
+                    let state_kind = if self.is_accepting_state(dst_pair.0)
+                        || other.is_accepting_state(dst_pair.1)
+                    {
+                        StateKind::Accepting
+                    } else {
+                        StateKind::Rejecting
+                    };
                     let new_id = dfa.new_state(state_kind);
                     pair_to_state.insert(*dst_pair, new_id);
                     queue.push_back(*dst_pair);
@@ -111,28 +140,40 @@ impl Dfa {
 
             dfa.set_transitions(state_id, RangeMapBlaze::from_iter(merged_out));
         }
+        dfa.assert_invariants();
+        self.assert_invariants();
+        other.assert_invariants();
 
         dfa
     }
 
     // todo0 what is this?
     fn step(&self, state: StateId, ch: char) -> StateId {
-        *self.transitions[state.0]
+        self.assert_invariants();
+        let next = *self.transitions[state.0]
             .get(ch)
-            .expect("state transitions cover all chars")
+            .expect("state transitions cover all chars");
+        self.assert_invariants();
+        next
     }
 
     // todo0 is this efficient?
     fn is_match(&self, input: &str) -> bool {
+        self.assert_invariants();
         let mut state = self.start;
         for ch in input.chars() {
             state = self.step(state, ch);
         }
-        self.is_accepting_state(state)
+        let is_match = self.is_accepting_state(state);
+        self.assert_invariants();
+        is_match
     }
 
     fn is_accepting_state(&self, state: StateId) -> bool {
-        self.state_kinds[state.0] == StateKind::Accepting
+        self.assert_invariants();
+        let is_accepting = self.state_kinds[state.0] == StateKind::Accepting;
+        self.assert_invariants();
+        is_accepting
     }
 }
 
@@ -156,7 +197,7 @@ fn main() {
 }
 
 fn inner_main() -> io::Result<()> {
-    let lower_case = Dfa::from_accept_set(RangeSetBlaze::from_iter(['a'..='z']));
+    let lower_case = Dfa::from_accept_set('a'..='z');
 
     assert!(lower_case.is_match("a"));
     assert!(!lower_case.is_match("A"));
@@ -168,7 +209,7 @@ fn inner_main() -> io::Result<()> {
     //     |state| state.0,
     // )?;
 
-    let upper_case = Dfa::from_accept_set(RangeSetBlaze::from_iter(['A'..='Z']));
+    let upper_case = Dfa::from_accept_set('A'..='Z');
     assert!(upper_case.is_match("A"));
     assert!(!upper_case.is_match("a"));
     // range_map_regex::display::display_dfa(
