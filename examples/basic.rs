@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use range_set_blaze::{RangeMapBlaze, RangeSetBlaze};
+use range_set_blaze::{RangeMapBlaze, RangeSetBlaze, SortedDisjointMap};
 
 type StateId = usize;
 
@@ -66,12 +66,14 @@ impl TinyRegex {
         }
     }
 
+    // // todo0 what is this?
     fn step(&self, state: StateId, ch: char) -> StateId {
         *self.transitions[state]
             .get(ch)
             .expect("state transitions cover all chars")
     }
 
+    // todo0 is this efficient?
     fn is_match(&self, input: &str) -> bool {
         let mut state = self.start;
         for ch in input.chars() {
@@ -85,16 +87,12 @@ fn merge_transition_maps(
     left: &RangeMapBlaze<char, StateId>,
     right: &RangeMapBlaze<char, StateId>,
 ) -> RangeMapBlaze<char, (StateId, StateId)> {
-    let mut merged = Vec::new();
-    for (left_range, left_value) in left.range_values() {
-        let left_set = RangeSetBlaze::from_iter([left_range.clone()]);
-        let overlap_right = right & &left_set;
-        for (overlap_range, right_value) in overlap_right.range_values() {
-            merged.push((overlap_range, (*left_value, *right_value)));
-        }
-    }
-
-    RangeMapBlaze::from_iter(merged)
+    RangeMapBlaze::from_iter(
+        left.range_values()
+        // todo0 is this efficient?
+            .zip_intersection(right.range_values())
+            .map(|(range, (left_value, right_value))| (range, (*left_value, *right_value))),
+    )
 }
 
 fn main() {
