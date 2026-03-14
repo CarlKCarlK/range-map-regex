@@ -6,69 +6,79 @@ use range_set_blaze::{RangeMapBlaze, RangeSetBlaze, SortedDisjointMap};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct StateId(usize);
 
-struct TinyRegex {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StateKind {
+    Accepting,
+    Rejecting,
+}
+
+struct Dfa {
     start: StateId,
-    accepting: Vec<bool>,
+    state_kinds: Vec<StateKind>,
     transitions: Vec<RangeMapBlaze<char, StateId>>,
 }
 
-#[derive(Default)]
-struct TinyRegexBuilder {
-    accepting: Vec<bool>,
-    transitions: Vec<RangeMapBlaze<char, StateId>>,
-}
-
-impl TinyRegexBuilder {
-    fn new() -> Self {
-        Self::default()
+impl Dfa {
+    fn new(start_kind: StateKind) -> Self {
+        let start = StateId(0);
+        Self {
+            start,
+            state_kinds: vec![start_kind],
+            transitions: vec![RangeMapBlaze::from_iter([(char::MIN..=char::MAX, start)])],
+        }
     }
 
-    fn fresh_state(&mut self, is_accepting: bool) -> StateId {
+    fn new_state(&mut self, state_kind: StateKind) -> StateId {
         let id = StateId(self.transitions.len());
-        self.accepting.push(is_accepting);
-        self.transitions.push(RangeMapBlaze::new());
+        self.state_kinds.push(state_kind);
+        self.transitions
+            .push(RangeMapBlaze::from_iter([(char::MIN..=char::MAX, id)]));
         id
     }
 
-    fn set_transitions(&mut self, state: StateId, map: RangeMapBlaze<char, StateId>) {
-        self.transitions[state.0] = map;
+    fn start(&self) -> StateId {
+        self.start
     }
 
-    fn build(self, start: StateId) -> TinyRegex {
-        TinyRegex {
-            start,
-            accepting: self.accepting,
-            transitions: self.transitions,
-        }
+    fn set_transitions(&mut self, state: StateId, map: RangeMapBlaze<char, StateId>) {
+        let mut total_map = RangeMapBlaze::from_iter([(char::MIN..=char::MAX, state)]);
+        total_map.extend(map.range_values().map(|(range, dst)| (range, *dst)));
+        self.transitions[state.0] = total_map;
     }
+
 }
 
-impl TinyRegex {
-    fn new(accept_set: RangeSetBlaze<char>) -> Self {
-        let mut builder = TinyRegexBuilder::new();
-        let start = builder.fresh_state(false);
-        let accept = builder.fresh_state(true);
-        let dead = builder.fresh_state(false);
+impl Dfa {
+    fn from_accept_set(accept_set: RangeSetBlaze<char>) -> Self {
+        let mut dfa = Dfa::new(StateKind::Rejecting);
+        let start = dfa.start();
+        let accept = dfa.new_state(StateKind::Accepting);
+        let dead = dfa.new_state(StateKind::Rejecting);
 
         let mut start_map = RangeMapBlaze::from_iter([(char::MIN..=char::MAX, dead)]);
         start_map.extend(accept_set.ranges().map(|range| (range, accept)));
 
         let sink_map = RangeMapBlaze::from_iter([(char::MIN..=char::MAX, dead)]);
 
-        builder.set_transitions(start, start_map);
-        builder.set_transitions(accept, sink_map.clone());
-        builder.set_transitions(dead, sink_map);
+        dfa.set_transitions(start, start_map);
+        dfa.set_transitions(accept, sink_map.clone());
+        dfa.set_transitions(dead, sink_map);
 
-        builder.build(start)
+        dfa
     }
 
     fn union(&self, other: &Self) -> Self {
-        let mut builder = TinyRegexBuilder::new();
+        let start_kind = if self.is_accepting_state(self.start) || other.is_accepting_state(other.start) {
+            StateKind::Accepting
+        } else {
+            StateKind::Rejecting
+        };
+        let mut dfa = Dfa::new(start_kind);
         let mut pair_to_state: HashMap<(StateId, StateId), StateId> = HashMap::new();
         let mut queue: VecDeque<(StateId, StateId)> = VecDeque::new();
 
         let start_pair = (self.start, other.start);
-        let start = builder.fresh_state(self.is_accepting_state(self.start) || other.is_accepting_state(other.start));
+        let start = dfa.start();
         pair_to_state.insert(start_pair, start);
         queue.push_back(start_pair);
 
@@ -85,8 +95,13 @@ impl TinyRegex {
                 let next = if let Some(existing) = pair_to_state.get(&dst_pair) {
                     *existing
                 } else {
-                    let accepting = self.is_accepting_state(dst_pair.0) || other.is_accepting_state(dst_pair.1);
-                    let new_id = builder.fresh_state(accepting);
+                    let state_kind =
+                        if self.is_accepting_state(dst_pair.0) || other.is_accepting_state(dst_pair.1) {
+                            StateKind::Accepting
+                        } else {
+                            StateKind::Rejecting
+                        };
+                    let new_id = dfa.new_state(state_kind);
                     pair_to_state.insert(*dst_pair, new_id);
                     queue.push_back(*dst_pair);
                     new_id
@@ -94,10 +109,10 @@ impl TinyRegex {
                 merged_out.push((range, next));
             }
 
-            builder.set_transitions(state_id, RangeMapBlaze::from_iter(merged_out));
+            dfa.set_transitions(state_id, RangeMapBlaze::from_iter(merged_out));
         }
 
-        builder.build(start)
+        dfa
     }
 
     // todo0 what is this?
@@ -117,7 +132,7 @@ impl TinyRegex {
     }
 
     fn is_accepting_state(&self, state: StateId) -> bool {
-        self.accepting[state.0]
+        self.state_kinds[state.0] == StateKind::Accepting
     }
 }
 
@@ -141,7 +156,7 @@ fn main() {
 }
 
 fn inner_main() -> io::Result<()> {
-    let lower_case = TinyRegex::new(RangeSetBlaze::from_iter(['a'..='z']));
+    let lower_case = Dfa::from_accept_set(RangeSetBlaze::from_iter(['a'..='z']));
 
     assert!(lower_case.is_match("a"));
     assert!(!lower_case.is_match("A"));
@@ -149,17 +164,17 @@ fn inner_main() -> io::Result<()> {
     // range_map_regex::display::display_dfa(
     //     lower_case.start,
     //     &lower_case.transitions,
-    //     |index| lower_case.accepting[index],
+    //     |index| lower_case.state_kinds[index] == StateKind::Accepting,
     //     |state| state.0,
     // )?;
 
-    let upper_case = TinyRegex::new(RangeSetBlaze::from_iter(['A'..='Z']));
+    let upper_case = Dfa::from_accept_set(RangeSetBlaze::from_iter(['A'..='Z']));
     assert!(upper_case.is_match("A"));
     assert!(!upper_case.is_match("a"));
     // range_map_regex::display::display_dfa(
     //     upper_case.start,
     //     &upper_case.transitions,
-    //     |index| upper_case.accepting[index],
+    //     |index| upper_case.state_kinds[index] == StateKind::Accepting,
     //     |state| state.0,
     // )?;
 
@@ -173,7 +188,7 @@ fn inner_main() -> io::Result<()> {
     range_map_regex::display::display_dfa(
         letter.start,
         &letter.transitions,
-        |index| letter.accepting[index],
+        |index| letter.state_kinds[index] == StateKind::Accepting,
         |state| state.0,
     )?;
 
