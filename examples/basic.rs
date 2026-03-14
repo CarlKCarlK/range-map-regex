@@ -1,6 +1,7 @@
 use std::io;
 
 use range_map_regex::dfa::Dfa;
+use range_map_regex::display::display_dfa;
 
 fn main() {
     if let Err(err) = inner_main() {
@@ -27,12 +28,16 @@ fn inner_main() -> io::Result<()> {
     assert!(!letter.is_match("7"));
     assert!(!letter.is_match("é"));
 
-    range_map_regex::display::display_dfa(
-        letter.start_state(),
-        letter.transitions(),
-        |index| letter.is_accepting_index(index),
-        |state| state.id(),
-    )?;
+    let minimized_letter = letter.minimize();
+    assert!(minimized_letter.state_count() < letter.state_count());
+    assert!(minimized_letter.is_match("a"));
+    assert!(minimized_letter.is_match("Z"));
+    assert!(!minimized_letter.is_match(""));
+    assert!(!minimized_letter.is_match("ab"));
+    assert!(!minimized_letter.is_match("7"));
+    assert!(!minimized_letter.is_match("é"));
+
+    display_dfa(&minimized_letter)?;
 
     println!("All tests passed!");
     Ok(())

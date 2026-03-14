@@ -4,9 +4,19 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::dfa::Dfa;
 use range_set_blaze::RangeMapBlaze;
 
-pub fn display_dfa<State, FAcceptByIndex, FIndex>(
+pub fn display_dfa(dfa: &Dfa) -> io::Result<()> {
+    display_transitions(
+        dfa.start_state(),
+        dfa.transitions(),
+        |index| dfa.is_accepting_index(index),
+        |state| state.id(),
+    )
+}
+
+fn display_transitions<State, FAcceptByIndex, FIndex>(
     start: State,
     transitions: &[RangeMapBlaze<char, State>],
     is_accepting_by_index: FAcceptByIndex,

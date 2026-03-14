@@ -16,7 +16,7 @@ impl StateId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum StateKind {
     Accepting,
     Rejecting,
@@ -156,6 +156,140 @@ impl Dfa {
         dfa
     }
 
+    pub fn minimize(&self) -> Self {
+        self.assert_invariants();
+
+        let state_count = self.transitions.len();
+        let mut reachable = vec![false; state_count];
+        let mut stack = vec![self.start];
+        while let Some(state) = stack.pop() {
+            if reachable[state.id()] {
+                continue;
+            }
+            reachable[state.id()] = true;
+            for (_, next) in self.transitions[state.id()].range_values() {
+                if !reachable[next.id()] {
+                    stack.push(*next);
+                }
+            }
+        }
+
+        let reachable_states: Vec<usize> = reachable
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, is_reachable)| is_reachable.then_some(idx))
+            .collect();
+
+        let mut block_of: Vec<Option<usize>> = vec![None; state_count];
+        let has_rejecting = reachable_states
+            .iter()
+            .any(|&state| self.state_kinds[state] == StateKind::Rejecting);
+        for &state in &reachable_states {
+            block_of[state] = Some(match self.state_kinds[state] {
+                StateKind::Rejecting => 0,
+                StateKind::Accepting => {
+                    if has_rejecting {
+                        1
+                    } else {
+                        0
+                    }
+                }
+            });
+        }
+
+        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        struct Signature {
+            state_kind: StateKind,
+            transitions: Vec<(char, char, usize)>,
+        }
+
+        loop {
+            let mut signature_to_block: IndexMap<Signature, usize> = IndexMap::new();
+            let mut next_block_of: Vec<Option<usize>> = vec![None; state_count];
+
+            for &state in &reachable_states {
+                let transitions = self.transitions[state]
+                    .range_values()
+                    .map(|(range, next)| {
+                        (
+                            *range.start(),
+                            *range.end(),
+                            block_of[next.id()].expect("reachable state has a block"),
+                        )
+                    })
+                    .collect();
+                let signature = Signature {
+                    state_kind: self.state_kinds[state],
+                transitions,
+                };
+                let block = if let Some(existing) = signature_to_block.get(&signature) {
+                    *existing
+                } else {
+                    let new_block = signature_to_block.len();
+                    signature_to_block.insert(signature, new_block);
+                    new_block
+                };
+                next_block_of[state] = Some(block);
+            }
+
+            let changed = reachable_states
+                .iter()
+                .any(|&state| next_block_of[state] != block_of[state]);
+            block_of = next_block_of;
+            if !changed {
+                break;
+            }
+        }
+
+        let block_count = reachable_states
+            .iter()
+            .map(|&state| block_of[state].expect("reachable state has a block"))
+            .max()
+            .map(|max_block| max_block + 1)
+            .unwrap_or(0);
+        let mut representative: Vec<Option<usize>> = vec![None; block_count];
+        for &state in &reachable_states {
+            let block = block_of[state].expect("reachable state has a block");
+            if representative[block].is_none() {
+                representative[block] = Some(state);
+            }
+        }
+
+        let start_block = block_of[self.start.id()].expect("start state has a block");
+        let start_kind = self.state_kinds
+            [representative[start_block].expect("start block has a representative")];
+        let mut minimized = Dfa::new(start_kind);
+        let mut block_to_state: Vec<Option<StateId>> = vec![None; block_count];
+        block_to_state[start_block] = Some(minimized.start);
+        for block in 0..block_count {
+            if block == start_block {
+                continue;
+            }
+            let state_kind = self.state_kinds
+                [representative[block].expect("block has a representative")];
+            block_to_state[block] = Some(minimized.new_state(state_kind));
+        }
+
+        for block in 0..block_count {
+            let rep = representative[block].expect("block has a representative");
+            let state = block_to_state[block].expect("block has a mapped state");
+            let mapped = self.transitions[rep]
+                .range_values()
+                .map(|(range, next)| {
+                    (
+                        range,
+                        block_to_state
+                            [block_of[next.id()].expect("reachable state has a block")]
+                        .expect("block has a mapped state"),
+                    )
+                });
+            minimized.set_transitions(state, RangeMapBlaze::from_iter(mapped));
+        }
+
+        minimized.assert_invariants();
+        minimized
+    }
+
     pub fn is_match(&self, input: &str) -> bool {
         self.assert_invariants();
         let mut state = self.start;
@@ -167,6 +301,10 @@ impl Dfa {
 
     pub fn start_state(&self) -> StateId {
         self.start
+    }
+
+    pub fn state_count(&self) -> usize {
+        self.transitions.len()
     }
 
     pub fn transitions(&self) -> &[RangeMapBlaze<char, StateId>] {
