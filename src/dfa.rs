@@ -206,7 +206,7 @@ impl Dfa {
             let merged_out = RangeMapBlaze::from_iter(
                 self.transitions[left_state.id()]
                     .range_values()
-                    .zip_intersection(other.transitions[right_state.id()].range_values())
+                    .inner_join(other.transitions[right_state.id()].range_values())
                     .map(|(range, (left_next, right_next))| {
                         let next_pair = (*left_next, *right_next);
                         let next = if let Some(existing) = pair_to_state.get(&next_pair) {
@@ -244,7 +244,7 @@ impl Dfa {
             let merged_out = RangeMapBlaze::from_iter(
                 self.transitions[left_state.id()]
                     .range_values()
-                    .zip_intersection(other.transitions[right_state.id()].range_values())
+                    .inner_join(other.transitions[right_state.id()].range_values())
                     .map(|(range, (left_next, right_next))| {
                         let next_pair = (*left_next, *right_next);
                         let next = if let Some(existing) = pair_to_state.get(&next_pair) {
@@ -323,7 +323,7 @@ impl Dfa {
             let merged_out = RangeMapBlaze::from_iter(
                 self.transitions[left_state.id()]
                     .range_values()
-                    .zip_intersection(right_next_map.range_values())
+                    .inner_join(right_next_map.range_values())
                     .map(|(range, (left_next, right_next_active))| {
                         let next_right_active = right_next_active.clone();
                         let next_key = (*left_next, next_right_active.clone());
@@ -591,7 +591,7 @@ impl Dfa {
         for source in iter {
             acc = RangeMapBlaze::from_iter(
                 acc.range_values()
-                    .zip_intersection(self.transitions[source.id()].range_values())
+                    .inner_join(self.transitions[source.id()].range_values())
                     .map(|(range, (next_set, next))| (range, next_set.with_inserted(*next))),
             );
         }
