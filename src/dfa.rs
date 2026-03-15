@@ -172,6 +172,10 @@ impl Dfa {
         Self::from_char_set(RangeSetBlaze::from_iter([range]))
     }
 
+    pub fn from_char(ch: char) -> Self {
+        Self::from_char_range(ch..=ch)
+    }
+
     pub fn from_chars_where(predicate: impl FnMut(char) -> bool) -> Self {
         Self::from_char_set(Self::char_set_from_predicate(predicate))
     }
@@ -185,9 +189,8 @@ impl Dfa {
     }
 
     pub fn string(s: &str) -> Self {
-        s.chars().fold(Dfa::epsilon(), |dfa, ch| {
-            dfa.concat(&Dfa::from_char_range(ch..=ch))
-        })
+        s.chars()
+            .fold(Dfa::epsilon(), |dfa, ch| dfa.concat(&Dfa::from_char(ch)))
     }
 
     pub fn union(&self, other: &Self) -> Self {

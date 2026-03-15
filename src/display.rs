@@ -48,6 +48,7 @@ where
     let mut dot = String::from("digraph TinyRegex {\n  rankdir=LR;\n");
     dot.push_str("  __start [shape=point];\n");
     dot.push_str(&format!("  __start -> s{};\n", state_index(start)));
+    let mut legend_entries: Vec<(String, String)> = Vec::new();
 
     for state_index_value in 0..transitions.len() {
         let is_accept = is_accepting_by_index(state_index_value);
@@ -72,7 +73,19 @@ where
                             .map(|range| *range.start())
                             .min()
                             .expect("non-empty ranges has minimum start char");
-                        escape_dot_char_label(first_char)
+                        let full_set = RangeSetBlaze::from_iter(ranges);
+                        let full_set_text = full_set.to_string();
+                        if let Some((existing_short_label, _)) = legend_entries
+                            .iter()
+                            .find(|(_, existing_full_set)| *existing_full_set == full_set_text)
+                        {
+                            existing_short_label.clone()
+                        } else {
+                            let superscript_index = legend_entries.len() + 1;
+                            let short_label = short_edge_label(first_char, superscript_index);
+                            legend_entries.push((short_label.clone(), full_set_text));
+                            short_label
+                        }
                     }
                     LabelStyle::FullRangeSet => {
                         let full_set = RangeSetBlaze::from_iter(ranges);
@@ -83,6 +96,16 @@ where
             }
         }
     }
+
+    if !legend_entries.is_empty() {
+        let legend_label = build_legend_html(&legend_entries);
+        dot.push_str(&format!(
+            "  __key [shape=box, label=<{legend_label}>, fontsize=14, margin=\"0.25,0.15\"];\n"
+        ));
+        dot.push_str("  { rank=sink; __key; }\n");
+        dot.push_str("  s0 -> __key [style=invis, weight=0];\n");
+    }
+
     dot.push_str("}\n");
 
     let stamp = SystemTime::now()
@@ -156,4 +179,48 @@ fn escape_dot_text_label(text: &str) -> String {
     text.replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
+}
+
+fn superscript_number(number: usize) -> String {
+    const SUPERSCRIPTS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
+    number
+        .to_string()
+        .chars()
+        .map(|ch| {
+            let digit = ch
+                .to_digit(10)
+                .expect("superscript_number called with decimal digits only");
+            SUPERSCRIPTS[digit as usize]
+        })
+        .collect()
+}
+
+fn short_edge_label(first_char: char, superscript_index: usize) -> String {
+    format!(
+        "{}{}",
+        escape_dot_char_label(first_char),
+        superscript_number(superscript_index)
+    )
+}
+
+fn build_legend_html(legend_entries: &[(String, String)]) -> String {
+    let mut html = String::from(
+        "<TABLE BORDER=\"0\" CELLBORDER=\"0\" CELLPADDING=\"2\" CELLSPACING=\"0\">",
+    );
+    html.push_str("<TR><TD ALIGN=\"LEFT\"><B>Key</B></TD></TR>");
+    for (short_label, range_set) in legend_entries {
+        let entry = format!("{short_label} = {range_set}");
+        html.push_str(&format!(
+            "<TR><TD ALIGN=\"LEFT\"><FONT FACE=\"monospace\">{}</FONT></TD></TR>",
+            escape_html_label(&entry)
+        ));
+    }
+    html.push_str("</TABLE>");
+    html
+}
+
+fn escape_html_label(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

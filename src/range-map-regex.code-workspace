@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../range-set-blaze"
+		}
+	],
+	"settings": {}
+}

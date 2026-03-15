@@ -20,7 +20,7 @@ fn inner_main() -> io::Result<()> {
     assert!(maybe_hi.is_match("hi"));
     assert!(!maybe_hi.is_match("h"));
 
-    let one_or_more_a = Dfa::from_char_range('a'..='a').plus();
+    let one_or_more_a = Dfa::from_char('a').plus();
     assert!(one_or_more_a.is_match("a"));
     assert!(one_or_more_a.is_match("aaaa"));
     assert!(!one_or_more_a.is_match(""));

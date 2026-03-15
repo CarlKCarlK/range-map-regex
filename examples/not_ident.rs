@@ -13,7 +13,7 @@ fn main() {
 fn inner_main() -> io::Result<()> {
     let xid_start = Dfa::xid_start();
     let xid_continue = Dfa::xid_continue();
-    let underscore = Dfa::from_char_range('_'..='_');
+    let underscore = Dfa::from_char('_');
 
     // Rust identifier token rule (Unicode-aware):
     //   XID_Start XID_Continue* | _ XID_Continue+
