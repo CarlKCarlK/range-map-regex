@@ -2,6 +2,7 @@ use std::io;
 
 use range_map_regex::dfa::Dfa;
 use range_map_regex::display::display_byte;
+use range_map_regex::display::display_char;
 
 fn main() {
     if let Err(err) = inner_main() {
@@ -14,6 +15,8 @@ fn inner_main() -> io::Result<()> {
     // Start tiny: exactly one ASCII character.
     let only_a = Dfa::string("a");
     let only_a_step1 = only_a.minimize();
+    display_char(&only_a_step1)?;
+
     let only_a_step2 = only_a_step1.to_utf8_dfa();
     let only_a_step2_min = only_a_step2.minimize();
     assert!(only_a.is_match("a"));

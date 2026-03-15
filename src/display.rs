@@ -89,6 +89,7 @@ where
         dot.push_str("  labelloc=\"b\";\n");
         dot.push_str("  labeljust=\"l\";\n");
         dot.push_str(&format!("  label=<{legend_label}>;\n"));
+        print_legend_to_stdout(&legend_entries);
     }
 
     dot.push_str("}\n");
@@ -100,10 +101,11 @@ where
     let base_name = format!("tiny_regex_{stamp}");
     let dot_path: PathBuf = std::env::temp_dir().join(format!("{base_name}.dot"));
     let svg_path: PathBuf = std::env::temp_dir().join(format!("{base_name}.svg"));
+    let png_path: PathBuf = std::env::temp_dir().join(format!("{base_name}.png"));
 
     fs::write(&dot_path, dot)?;
 
-    let dot_status = Command::new("dot")
+    let dot_svg_status = Command::new("dot")
         .arg("-Tsvg")
         .arg(&dot_path)
         .arg("-o")
@@ -118,8 +120,27 @@ where
                 ),
             )
         })?;
-    if !dot_status.success() {
-        return Err(io::Error::other("`dot` failed to render graph"));
+    if !dot_svg_status.success() {
+        return Err(io::Error::other("`dot` failed to render SVG graph"));
+    }
+
+    let dot_png_status = Command::new("dot")
+        .arg("-Tpng")
+        .arg(&dot_path)
+        .arg("-o")
+        .arg(&png_path)
+        .status()
+        .map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!(
+                    "failed to run `dot` (install Graphviz). DOT file: {}",
+                    dot_path.display()
+                ),
+            )
+        })?;
+    if !dot_png_status.success() {
+        return Err(io::Error::other("`dot` failed to render PNG graph"));
     }
 
     // TODO0 This opener order may be overly WSL-specific; make it configurable.
@@ -206,6 +227,7 @@ where
         dot.push_str("  labelloc=\"b\";\n");
         dot.push_str("  labeljust=\"l\";\n");
         dot.push_str(&format!("  label=<{legend_label}>;\n"));
+        print_legend_to_stdout(&legend_entries);
     }
 
     dot.push_str("}\n");
@@ -217,10 +239,11 @@ where
     let base_name = format!("tiny_regex_{stamp}");
     let dot_path: PathBuf = std::env::temp_dir().join(format!("{base_name}.dot"));
     let svg_path: PathBuf = std::env::temp_dir().join(format!("{base_name}.svg"));
+    let png_path: PathBuf = std::env::temp_dir().join(format!("{base_name}.png"));
 
     fs::write(&dot_path, dot)?;
 
-    let dot_status = Command::new("dot")
+    let dot_svg_status = Command::new("dot")
         .arg("-Tsvg")
         .arg(&dot_path)
         .arg("-o")
@@ -235,8 +258,27 @@ where
                 ),
             )
         })?;
-    if !dot_status.success() {
-        return Err(io::Error::other("`dot` failed to render graph"));
+    if !dot_svg_status.success() {
+        return Err(io::Error::other("`dot` failed to render SVG graph"));
+    }
+
+    let dot_png_status = Command::new("dot")
+        .arg("-Tpng")
+        .arg(&dot_path)
+        .arg("-o")
+        .arg(&png_path)
+        .status()
+        .map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!(
+                    "failed to run `dot` (install Graphviz). DOT file: {}",
+                    dot_path.display()
+                ),
+            )
+        })?;
+    if !dot_png_status.success() {
+        return Err(io::Error::other("`dot` failed to render PNG graph"));
     }
 
     let open_status = Command::new("wslview").arg(&svg_path).status();
@@ -320,6 +362,21 @@ fn build_legend_html(legend_entries: &[(String, String)]) -> String {
     }
     html.push_str("</TABLE>");
     html
+}
+
+fn print_legend_to_stdout(legend_entries: &[(String, String)]) {
+    println!("Key:");
+    for (short_label, range_set) in legend_entries {
+        println!(
+            "{} = {}",
+            unescape_for_stdout(short_label),
+            unescape_for_stdout(range_set)
+        );
+    }
+}
+
+fn unescape_for_stdout(text: &str) -> String {
+    text.replace("\\\\", "\\")
 }
 
 fn escape_html_label(text: &str) -> String {
