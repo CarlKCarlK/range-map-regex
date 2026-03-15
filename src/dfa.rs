@@ -354,45 +354,39 @@ impl Dfa {
     pub fn star(&self) -> Self {
         self.assert_invariants();
 
-        let mut start_active: BTreeSet<StateId> = BTreeSet::new();
-        start_active.insert(self.start);
-
+        let start_active = BTreeSet::from([self.start]);
         let mut dfa = Dfa::new(StateKind::Accepting);
-        let mut key_to_state: IndexMap<(BTreeSet<StateId>, bool), StateId> = IndexMap::new();
-        key_to_state.insert((start_active, true), dfa.start);
+        let mut key_to_state: IndexMap<(BTreeSet<StateId>, StateKind), StateId> = IndexMap::new();
+        key_to_state.insert((start_active, StateKind::Accepting), dfa.start);
 
         let mut cursor = 0;
-        while let Some(((active, _at_boundary), &state_id)) = key_to_state.get_index(cursor) {
+        while let Some(((active, _boundary_kind), &state_id)) = key_to_state.get_index(cursor) {
             let active = active.clone();
-            let source_indices = active.clone();
+            let next_map = self.subset_transition_map(&active);
+            let merged_out = RangeMapBlaze::from_iter(next_map.range_values().map(
+                |(range, next_active)| {
+                    let mut next_active = next_active.clone();
+                    let boundary_kind = self.any_accepting(&next_active);
+                    if boundary_kind == StateKind::Accepting {
+                        // Once we can end one repetition, the next repetition may start immediately.
+                        // Include the original start state in the active subset for following input.
+                        // todo0 this subset expansion may be optimized.
+                        next_active.insert(self.start);
+                    }
 
-            let next_map = self.subset_transition_map(&source_indices);
-            let mut merged_out = Vec::new();
-            for (range, next_active) in next_map.range_values() {
-                let mut next_active = next_active.clone();
-                let at_boundary_kind = self.any_accepting(&next_active);
-                let at_boundary = at_boundary_kind == StateKind::Accepting;
-                if at_boundary {
-                    next_active.insert(self.start);
-                }
-
-                let next_key = (next_active.clone(), at_boundary);
-                let next = if let Some(existing) = key_to_state.get(&next_key) {
-                    *existing
-                } else {
-                    let state_kind = if at_boundary_kind == StateKind::Accepting {
-                        StateKind::Accepting
+                    let next_key = (next_active.clone(), boundary_kind);
+                    let next = if let Some(existing) = key_to_state.get(&next_key) {
+                        *existing
                     } else {
-                        StateKind::Rejecting
+                        let new_id = dfa.new_state(boundary_kind);
+                        key_to_state.insert(next_key, new_id);
+                        new_id
                     };
-                    let new_id = dfa.new_state(state_kind);
-                    key_to_state.insert(next_key, new_id);
-                    new_id
-                };
-                merged_out.push((range, next));
-            }
+                    (range, next)
+                },
+            ));
 
-            dfa.set_transitions(state_id, RangeMapBlaze::from_iter(merged_out));
+            dfa.set_transitions(state_id, merged_out);
             cursor += 1;
         }
 
