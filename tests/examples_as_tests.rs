@@ -1,15 +1,7 @@
-use std::io;
-
 use range_map_regex::dfa::Dfa;
 
-fn main() {
-    if let Err(err) = inner_main() {
-        eprintln!("{err}");
-        std::process::exit(1);
-    }
-}
-
-fn inner_main() -> io::Result<()> {
+#[test]
+fn basic_example_behavior() {
     let hello = Dfa::string("hello");
     assert!(hello.is_match("hello"));
     assert!(!hello.is_match("hell"));
@@ -29,19 +21,16 @@ fn inner_main() -> io::Result<()> {
     let empty = Dfa::empty();
     assert!(!empty.is_match(""));
     assert!(!empty.is_match("a"));
-    // display_dfa(&empty)?;
 
     let epsilon = Dfa::epsilon();
     assert!(epsilon.is_match(""));
     assert!(!epsilon.is_match("a"));
-    // display_dfa(&epsilon)?;
 
     let lower_case = Dfa::from_char_range('a'..='z');
+    let upper_case = Dfa::from_char_range('A'..='Z');
 
     assert!(lower_case.is_match("a"));
     assert!(!lower_case.is_match("A"));
-
-    let upper_case = Dfa::from_char_range('A'..='Z');
     assert!(upper_case.is_match("A"));
     assert!(!upper_case.is_match("a"));
 
@@ -61,9 +50,6 @@ fn inner_main() -> io::Result<()> {
     assert!(!lower_star.is_match("A"));
     assert!(!lower_star.is_match("aA"));
     assert!(!lower_star.is_match("7"));
-    // display_dfa(&lower_star)?;
-    // let lower_star = lower_star.minimize();
-    // display_dfa(&lower_star)?;
 
     let empty_star = empty.star();
     assert!(empty_star.is_match(""));
@@ -112,9 +98,48 @@ fn inner_main() -> io::Result<()> {
     assert!(!minimized_letter.is_match("ab"));
     assert!(!minimized_letter.is_match("7"));
     assert!(!minimized_letter.is_match("é"));
+}
 
-    // display_dfa(&minimized_letter)?;
+#[test]
+fn not_ident_example_behavior() {
+    let xid_start = Dfa::xid_start();
+    let xid_continue = Dfa::xid_continue();
+    let underscore = Dfa::from_char_range('_'..='_');
 
-    println!("All tests passed!");
-    Ok(())
+    let ident_from_start = xid_start.concat(&xid_continue.star());
+    let ident_from_underscore = underscore.concat(&xid_continue.concat(&xid_continue.star()));
+    let ident = ident_from_start.union(&ident_from_underscore);
+    let not_ident = ident.complement();
+
+    assert!(ident.is_match("hello"));
+    assert!(ident.is_match("x"));
+    assert!(ident.is_match("_tmp"));
+    assert!(ident.is_match("Var123"));
+    assert!(ident.is_match("snake_case_2"));
+    assert!(ident.is_match("éclair"));
+    assert!(ident.is_match("变量"));
+    assert!(ident.is_match("Δx"));
+    assert!(ident.is_match("__"));
+    assert!(!ident.is_match(""));
+    assert!(!ident.is_match("_"));
+    assert!(!ident.is_match("1abc"));
+    assert!(!ident.is_match("a-b"));
+    assert!(!ident.is_match("🤖"));
+
+    assert!(!not_ident.is_match("hello"));
+    assert!(!not_ident.is_match("éclair"));
+    assert!(!not_ident.is_match("变量"));
+    assert!(!not_ident.is_match("Δx"));
+    assert!(not_ident.is_match(""));
+    assert!(not_ident.is_match("_"));
+    assert!(not_ident.is_match("1abc"));
+    assert!(not_ident.is_match("a-b"));
+    assert!(not_ident.is_match("🤖"));
+
+    let minimized = not_ident.minimize();
+    assert!(minimized.is_match(""));
+    assert!(minimized.is_match("_"));
+    assert!(minimized.is_match("1abc"));
+    assert!(!minimized.is_match("hello"));
+    assert!(!minimized.is_match("éclair"));
 }

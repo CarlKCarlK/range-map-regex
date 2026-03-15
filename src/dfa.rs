@@ -1,7 +1,8 @@
-use std::ops::RangeInclusive;
+use std::collections::BTreeSet;
+use std::ops::{BitAnd, BitOr, RangeInclusive};
 
 use indexmap::IndexMap;
-use range_set_blaze::{RangeMapBlaze, SortedDisjointMap};
+use range_set_blaze::{RangeMapBlaze, RangeSetBlaze, SortedDisjointMap};
 
 const CHAR_UNIVERSE: RangeInclusive<char> = char::MIN..=char::MAX;
 
@@ -16,6 +17,18 @@ impl StateId {
     }
 }
 
+impl Ord for StateId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl PartialOrd for StateId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum StateKind {
     Accepting,
@@ -23,8 +36,31 @@ enum StateKind {
 }
 
 impl StateKind {
-    fn union(self, other: Self) -> Self {
-        if self == StateKind::Accepting || other == StateKind::Accepting {
+    fn complement(self) -> Self {
+        match self {
+            StateKind::Accepting => StateKind::Rejecting,
+            StateKind::Rejecting => StateKind::Accepting,
+        }
+    }
+}
+
+impl BitOr for StateKind {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        if self == StateKind::Accepting || rhs == StateKind::Accepting {
+            StateKind::Accepting
+        } else {
+            StateKind::Rejecting
+        }
+    }
+}
+
+impl BitAnd for StateKind {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        if self == StateKind::Accepting && rhs == StateKind::Accepting {
             StateKind::Accepting
         } else {
             StateKind::Rejecting
@@ -94,12 +130,16 @@ impl Dfa {
         self.transitions[state.id()][ch]
     }
 
-    fn is_accepting_state(&self, state: StateId) -> bool {
+    fn state_kind(&self, state: StateId) -> StateKind {
         self.assert_invariants();
-        self.state_kinds[state.id()] == StateKind::Accepting
+        self.state_kinds[state.id()]
     }
 
-    pub fn from_char_range(range: RangeInclusive<char>) -> Self {
+    fn is_accepting(&self, state: StateId) -> bool {
+        self.state_kind(state) == StateKind::Accepting
+    }
+
+    pub fn from_char_set(accept_set: RangeSetBlaze<char>) -> Self {
         let mut dfa = Dfa::new(StateKind::Rejecting);
         dfa.assert_invariants();
 
@@ -113,10 +153,10 @@ impl Dfa {
         // From the start state, you can go to the accept state on the accept range, but otherwise you are dead.
         dfa.set_transitions(
             dfa.start,
-            RangeMapBlaze::from_iter([
-                (CHAR_UNIVERSE, dead), // send all to dead state
-                (range, accept),       // except the accept range
-            ]),
+            RangeMapBlaze::from_iter(
+                std::iter::once((CHAR_UNIVERSE, dead)) // send all to dead state
+                    .chain(accept_set.ranges().map(|range| (range, accept))), // except the accept range
+            ),
         );
 
         dfa.assert_invariants();
@@ -124,12 +164,36 @@ impl Dfa {
         dfa
     }
 
+    pub fn from_char_range(range: RangeInclusive<char>) -> Self {
+        Self::from_char_set(RangeSetBlaze::from_iter([range]))
+    }
+
+    pub fn from_chars_where(predicate: impl FnMut(char) -> bool) -> Self {
+        Self::from_char_set(Self::char_set_from_predicate(predicate))
+    }
+
+    pub fn xid_start() -> Self {
+        Self::from_chars_where(unicode_ident::is_xid_start)
+    }
+
+    pub fn xid_continue() -> Self {
+        Self::from_chars_where(unicode_ident::is_xid_continue)
+    }
+
+    pub fn string(s: &str) -> Self {
+        let mut dfa = Dfa::epsilon();
+        for ch in s.chars() {
+            let one_char = Dfa::from_char_range(ch..=ch);
+            dfa = dfa.concat(&one_char);
+        }
+        dfa
+    }
+
     pub fn union(&self, other: &Self) -> Self {
         self.assert_invariants();
         other.assert_invariants();
         // Union product: the combined start state is accepting if either input start state accepts.
-        let start_kind =
-            self.state_kinds[self.start.id()].union(other.state_kinds[other.start.id()]);
+        let start_kind = self.state_kinds[self.start.id()] | other.state_kinds[other.start.id()];
         let mut dfa = Dfa::new(start_kind);
 
         let mut pair_to_state: IndexMap<(StateId, StateId), StateId> = IndexMap::new();
@@ -153,7 +217,7 @@ impl Dfa {
                     *existing
                 } else {
                     let state_kind =
-                        self.state_kinds[left_next.id()].union(other.state_kinds[right_next.id()]);
+                        self.state_kinds[left_next.id()] | other.state_kinds[right_next.id()];
                     let new_id = dfa.new_state(state_kind);
                     pair_to_state.insert(next_pair, new_id);
                     new_id
@@ -166,6 +230,173 @@ impl Dfa {
         }
         dfa.assert_invariants();
 
+        dfa
+    }
+
+    pub fn intersection(&self, other: &Self) -> Self {
+        self.assert_invariants();
+        other.assert_invariants();
+        let start_kind = self.state_kinds[self.start.id()] & other.state_kinds[other.start.id()];
+        let mut dfa = Dfa::new(start_kind);
+
+        let mut pair_to_state: IndexMap<(StateId, StateId), StateId> = IndexMap::new();
+        pair_to_state.insert((self.start, other.start), dfa.start);
+
+        let mut cursor = 0;
+        while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
+            let mut merged_out = Vec::new();
+            for (range, (left_next, right_next)) in self.transitions[left_state.id()]
+                .range_values()
+                .zip_intersection(other.transitions[right_state.id()].range_values())
+            {
+                let left_next = *left_next;
+                let right_next = *right_next;
+                let next_pair = (left_next, right_next);
+                let next = if let Some(existing) = pair_to_state.get(&next_pair) {
+                    *existing
+                } else {
+                    let state_kind =
+                        self.state_kinds[left_next.id()] & other.state_kinds[right_next.id()];
+                    let new_id = dfa.new_state(state_kind);
+                    pair_to_state.insert(next_pair, new_id);
+                    new_id
+                };
+                merged_out.push((range, next));
+            }
+            dfa.set_transitions(state_id, RangeMapBlaze::from_iter(merged_out));
+            cursor += 1;
+        }
+
+        dfa.assert_invariants();
+        dfa
+    }
+
+    pub fn complement(&self) -> Self {
+        self.assert_invariants();
+        let complemented = Dfa {
+            start: self.start,
+            state_kinds: self
+                .state_kinds
+                .iter()
+                .map(|kind| kind.complement())
+                .collect(),
+            transitions: self.transitions.clone(),
+        };
+        complemented.assert_invariants();
+        complemented
+    }
+
+    pub fn optional(&self) -> Self {
+        self.union(&Dfa::epsilon())
+    }
+
+    pub fn plus(&self) -> Self {
+        self.concat(&self.star())
+    }
+
+    // todo00 study this
+    pub fn concat(&self, right: &Self) -> Self {
+        self.assert_invariants();
+        right.assert_invariants();
+
+        // Active right states at the current boundary between left and right.
+        let mut right_active = BTreeSet::new(); // todo00 slow but nice set semantics.
+        // If left accepts empty at start, right may start immediately.
+        if self.is_accepting(self.start) {
+            right_active.insert(right.start);
+        }
+        let start_kind = self.concat_state_kind(self.start, right, &right_active);
+
+        // Build the concatenated DFA lazily from discovered product keys.
+        let mut dfa = Dfa::new(start_kind);
+
+        // Key: (left state, active-right-state subset) -> concatenated DFA state.
+        let mut key_to_state = IndexMap::new();
+        key_to_state.insert((self.start, right_active), dfa.start);
+
+        let mut cursor = 0;
+        while let Some(((left_state, right_active), &state_id)) = key_to_state.get_index(cursor) {
+            let left_state = *left_state;
+            let mut right_sources = right_active.clone();
+            if self.is_accepting(left_state) {
+                right_sources.insert(right.start);
+            }
+
+            let right_next_map = right.subset_transition_map(&right_sources);
+            let merged_out = RangeMapBlaze::from_iter(
+                self.transitions[left_state.id()]
+                    .range_values()
+                    .zip_intersection(right_next_map.range_values())
+                    .map(|(range, (left_next, right_next_active))| {
+                        let next_right_active = right_next_active.clone();
+                        let next_key = (*left_next, next_right_active.clone());
+                        let next = if let Some(existing) = key_to_state.get(&next_key) {
+                            *existing
+                        } else {
+                            let state_kind =
+                                self.concat_state_kind(next_key.0, right, &next_right_active);
+                            let new_id = dfa.new_state(state_kind);
+                            key_to_state.insert(next_key, new_id);
+                            new_id
+                        };
+                        (range, next)
+                    }),
+            );
+
+            dfa.set_transitions(state_id, merged_out);
+            cursor += 1;
+        }
+
+        dfa.assert_invariants();
+        dfa
+    }
+
+    pub fn star(&self) -> Self {
+        self.assert_invariants();
+
+        let mut start_active: BTreeSet<StateId> = BTreeSet::new();
+        start_active.insert(self.start);
+
+        let mut dfa = Dfa::new(StateKind::Accepting);
+        let mut key_to_state: IndexMap<(BTreeSet<StateId>, bool), StateId> = IndexMap::new();
+        key_to_state.insert((start_active, true), dfa.start);
+
+        let mut cursor = 0;
+        while let Some(((active, _at_boundary), &state_id)) = key_to_state.get_index(cursor) {
+            let active = active.clone();
+            let source_indices = active.clone();
+
+            let next_map = self.subset_transition_map(&source_indices);
+            let mut merged_out = Vec::new();
+            for (range, next_active) in next_map.range_values() {
+                let mut next_active = next_active.clone();
+                let at_boundary_kind = self.any_accepting(&next_active);
+                let at_boundary = at_boundary_kind == StateKind::Accepting;
+                if at_boundary {
+                    next_active.insert(self.start);
+                }
+
+                let next_key = (next_active.clone(), at_boundary);
+                let next = if let Some(existing) = key_to_state.get(&next_key) {
+                    *existing
+                } else {
+                    let state_kind = if at_boundary_kind == StateKind::Accepting {
+                        StateKind::Accepting
+                    } else {
+                        StateKind::Rejecting
+                    };
+                    let new_id = dfa.new_state(state_kind);
+                    key_to_state.insert(next_key, new_id);
+                    new_id
+                };
+                merged_out.push((range, next));
+            }
+
+            dfa.set_transitions(state_id, RangeMapBlaze::from_iter(merged_out));
+            cursor += 1;
+        }
+
+        dfa.assert_invariants();
         dfa
     }
 
@@ -306,7 +537,7 @@ impl Dfa {
         for ch in input.chars() {
             state = self.step(state, ch);
         }
-        self.is_accepting_state(state)
+        self.is_accepting(state)
     }
 
     pub fn start_state(&self) -> StateId {
@@ -322,6 +553,66 @@ impl Dfa {
     }
 
     pub fn is_accepting_index(&self, index: usize) -> bool {
-        self.state_kinds[index] == StateKind::Accepting
+        self.is_accepting(StateId { id: index })
+    }
+
+    fn any_accepting(&self, active: &BTreeSet<StateId>) -> StateKind {
+        active
+            .iter()
+            .fold(StateKind::Rejecting, |acc, state_index| {
+                acc | self.state_kinds[state_index.id()]
+            })
+    }
+
+    fn concat_state_kind(
+        &self,
+        left_state: StateId,
+        right: &Dfa,
+        right_active: &BTreeSet<StateId>,
+    ) -> StateKind {
+        right.any_accepting(right_active)
+            | if self.is_accepting(left_state) && right.is_accepting(right.start) {
+                StateKind::Accepting
+            } else {
+                StateKind::Rejecting
+            }
+    }
+
+    fn subset_transition_map(
+        &self,
+        source_indices: &BTreeSet<StateId>,
+    ) -> RangeMapBlaze<char, BTreeSet<StateId>> {
+        let mut iter = source_indices.iter();
+
+        // If empty, the transition is to the empty set on all characters.
+        let Some(first) = iter.next() else {
+            return RangeMapBlaze::universe_with(&BTreeSet::new());
+        };
+
+        // For the 1st source, the transition is to the singleton set of its target on each character.
+        let mut acc = RangeMapBlaze::from_iter(
+            self.transitions[first.id()]
+                .range_values()
+                .map(|(range, next)| (range, BTreeSet::from([*next]))),
+        );
+
+        // For each subsequent source, intersect the current map with the singleton map of its targets, and union the targets into the resulting sets.
+        for source in iter {
+            acc = RangeMapBlaze::from_iter(
+                acc.range_values()
+                    .zip_intersection(self.transitions[source.id()].range_values())
+                    .map(|(range, (next_set, next))| {
+                        let mut next_set = next_set.clone();
+                        next_set.insert(*next);
+                        (range, next_set)
+                    }),
+            );
+        }
+
+        acc
+    }
+
+    fn char_set_from_predicate(mut predicate: impl FnMut(char) -> bool) -> RangeSetBlaze<char> {
+        RangeSetBlaze::from_iter(CHAR_UNIVERSE.clone().filter(|&ch| predicate(ch)))
     }
 }

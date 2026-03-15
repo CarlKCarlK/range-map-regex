@@ -5,7 +5,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::dfa::Dfa;
-use range_set_blaze::RangeMapBlaze;
+use range_set_blaze::{RangeMapBlaze, RangeSetBlaze};
 
 pub fn display_dfa(dfa: &Dfa) -> io::Result<()> {
     display_transitions(
@@ -13,7 +13,24 @@ pub fn display_dfa(dfa: &Dfa) -> io::Result<()> {
         dfa.transitions(),
         |index| dfa.is_accepting_index(index),
         |state| state.id(),
+        LabelStyle::FirstChar,
     )
+}
+
+pub fn display_full(dfa: &Dfa) -> io::Result<()> {
+    display_transitions(
+        dfa.start_state(),
+        dfa.transitions(),
+        |index| dfa.is_accepting_index(index),
+        |state| state.id(),
+        LabelStyle::FullRangeSet,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum LabelStyle {
+    FirstChar,
+    FullRangeSet,
 }
 
 fn display_transitions<State, FAcceptByIndex, FIndex>(
@@ -21,6 +38,7 @@ fn display_transitions<State, FAcceptByIndex, FIndex>(
     transitions: &[RangeMapBlaze<char, State>],
     is_accepting_by_index: FAcceptByIndex,
     state_index: FIndex,
+    label_style: LabelStyle,
 ) -> io::Result<()>
 where
     State: Copy + Eq,
@@ -38,23 +56,30 @@ where
     }
 
     for (from_index, state_transitions) in transitions.iter().enumerate() {
-        let mut first_label_by_destination: Vec<Option<char>> = vec![None; transitions.len()];
+        let mut ranges_by_destination: Vec<Vec<std::ops::RangeInclusive<char>>> =
+            vec![Vec::new(); transitions.len()];
         for (range, to_state) in state_transitions.range_values() {
             let to_index = state_index(*to_state);
-            let start_char = *range.start();
-            let slot = &mut first_label_by_destination[to_index];
-            *slot = Some(match *slot {
-                Some(existing) => existing.min(start_char),
-                None => start_char,
-            });
+            ranges_by_destination[to_index].push(range);
         }
 
-        for (to_index, maybe_label_char) in first_label_by_destination.into_iter().enumerate() {
-            if let Some(label_char) = maybe_label_char {
-                let label = escape_dot_label(label_char);
-                dot.push_str(&format!(
-                    "  s{from_index} -> s{to_index} [label=\"{label}\"];\n"
-                ));
+        for (to_index, ranges) in ranges_by_destination.into_iter().enumerate() {
+            if !ranges.is_empty() {
+                let label = match label_style {
+                    LabelStyle::FirstChar => {
+                        let first_char = ranges
+                            .iter()
+                            .map(|range| *range.start())
+                            .min()
+                            .expect("non-empty ranges has minimum start char");
+                        escape_dot_char_label(first_char)
+                    }
+                    LabelStyle::FullRangeSet => {
+                        let full_set = RangeSetBlaze::from_iter(ranges);
+                        escape_dot_text_label(&full_set.to_string())
+                    }
+                };
+                dot.push_str(&format!("  s{from_index} -> s{to_index} [label=\"{label}\"];\n"));
             }
         }
     }
@@ -114,7 +139,7 @@ or `xdg-utils`. SVG file: {}",
     Ok(())
 }
 
-fn escape_dot_label(ch: char) -> String {
+fn escape_dot_char_label(ch: char) -> String {
     match ch {
         '"' => "\\\"".to_owned(),
         '\\' => "\\\\".to_owned(),
@@ -125,4 +150,10 @@ fn escape_dot_label(ch: char) -> String {
         _ if ch.is_control() => format!("U+{:04X}", ch as u32),
         _ => ch.to_string(),
     }
+}
+
+fn escape_dot_text_label(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }

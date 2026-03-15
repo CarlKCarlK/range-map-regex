@@ -1,2 +1,5 @@
 [alias]
 basic = "run --example basic"
+ident = "run --example not_ident"
+not_ident = "run --example not_ident"
+check-all = "test --all-targets"
