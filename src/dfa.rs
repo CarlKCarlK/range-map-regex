@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
 use std::ops::{BitAnd, BitOr, RangeInclusive};
 
+use crate::state_id_set::StateIdSet;
 use indexmap::IndexMap;
 use range_set_blaze::{RangeMapBlaze, RangeSetBlaze, SortedDisjointMap};
 
@@ -14,6 +14,10 @@ pub struct StateId {
 impl StateId {
     pub fn id(self) -> usize {
         self.id
+    }
+
+    pub(crate) fn from_id(id: usize) -> Self {
+        Self { id }
     }
 }
 
@@ -297,7 +301,7 @@ impl Dfa {
         right.assert_invariants();
 
         // Active right states at the current boundary between left and right.
-        let mut right_active = BTreeSet::new(); // todo00 slow but nice set semantics.
+        let mut right_active = StateIdSet::new();
         // If left accepts empty at start, right may start immediately.
         if self.is_accepting(self.start) {
             right_active.insert(right.start);
@@ -351,9 +355,9 @@ impl Dfa {
     pub fn star(&self) -> Self {
         self.assert_invariants();
 
-        let start_active = BTreeSet::from([self.start]);
+        let start_active = StateIdSet::from_state(self.start);
         let mut dfa = Dfa::new(StateKind::Accepting);
-        let mut key_to_state: IndexMap<(BTreeSet<StateId>, StateKind), StateId> = IndexMap::new();
+        let mut key_to_state: IndexMap<(StateIdSet, StateKind), StateId> = IndexMap::new();
         key_to_state.insert((start_active, StateKind::Accepting), dfa.start);
 
         let mut cursor = 0;
@@ -547,7 +551,7 @@ impl Dfa {
         self.is_accepting(StateId { id: index })
     }
 
-    fn any_accepting(&self, active: &BTreeSet<StateId>) -> StateKind {
+    fn any_accepting(&self, active: &StateIdSet) -> StateKind {
         active
             .iter()
             .fold(StateKind::Rejecting, |acc, state_index| {
@@ -559,7 +563,7 @@ impl Dfa {
         &self,
         left_state: StateId,
         right: &Dfa,
-        right_active: &BTreeSet<StateId>,
+        right_active: &StateIdSet,
     ) -> StateKind {
         right.any_accepting(right_active)
             | if self.is_accepting(left_state) && right.is_accepting(right.start) {
@@ -571,20 +575,20 @@ impl Dfa {
 
     fn subset_transition_map(
         &self,
-        source_indices: &BTreeSet<StateId>,
-    ) -> RangeMapBlaze<char, BTreeSet<StateId>> {
+        source_indices: &StateIdSet,
+    ) -> RangeMapBlaze<char, StateIdSet> {
         let mut iter = source_indices.iter();
 
         // If empty, the transition is to the empty set on all characters.
         let Some(first) = iter.next() else {
-            return RangeMapBlaze::universe_with(&BTreeSet::new());
+            return RangeMapBlaze::universe_with(&StateIdSet::new());
         };
 
         // For the 1st source, the transition is to the singleton set of its target on each character.
         let mut acc = RangeMapBlaze::from_iter(
             self.transitions[first.id()]
                 .range_values()
-                .map(|(range, next)| (range, BTreeSet::from([*next]))),
+                .map(|(range, next)| (range, StateIdSet::from_state(*next))),
         );
 
         // For each subsequent source, intersect the current map with the singleton map of its targets, and union the targets into the resulting sets.
@@ -592,11 +596,7 @@ impl Dfa {
             acc = RangeMapBlaze::from_iter(
                 acc.range_values()
                     .zip_intersection(self.transitions[source.id()].range_values())
-                    .map(|(range, (next_set, next))| {
-                        let mut next_set = next_set.clone();
-                        next_set.insert(*next);
-                        (range, next_set)
-                    }),
+                    .map(|(range, (next_set, next))| (range, next_set.with_inserted(*next))),
             );
         }
 
