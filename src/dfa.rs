@@ -194,7 +194,7 @@ impl Dfa {
         self.assert_invariants();
         other.assert_invariants();
         // Union product: the combined start state is accepting if either input start state accepts.
-        let start_kind = self.state_kinds[self.start.id()] | other.state_kinds[other.start.id()];
+        let start_kind = self.state_kind(self.start) | other.state_kind(other.start);
         let mut dfa = Dfa::new(start_kind);
 
         let mut pair_to_state: IndexMap<(StateId, StateId), StateId> = IndexMap::new();
@@ -203,30 +203,26 @@ impl Dfa {
         // For each new state that we haven't visited yet....
         let mut cursor = 0;
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
-            // For each range that transition to same pair ...
-            let mut merged_out = Vec::new();
-            for (range, (left_next, right_next)) in self.transitions[left_state.id()]
-                .range_values()
-                .zip_intersection(other.transitions[right_state.id()].range_values())
-            {
-                let left_next = *left_next;
-                let right_next = *right_next;
-                let next_pair = (left_next, right_next);
+            let merged_out = RangeMapBlaze::from_iter(
+                self.transitions[left_state.id()]
+                    .range_values()
+                    .zip_intersection(other.transitions[right_state.id()].range_values())
+                    .map(|(range, (left_next, right_next))| {
+                        let next_pair = (*left_next, *right_next);
+                        let next = if let Some(existing) = pair_to_state.get(&next_pair) {
+                            *existing
+                        } else {
+                            let state_kind =
+                                self.state_kind(next_pair.0) | other.state_kind(next_pair.1);
+                            let new_id = dfa.new_state(state_kind);
+                            pair_to_state.insert(next_pair, new_id);
+                            new_id
+                        };
+                        (range, next)
+                    }),
+            );
 
-                // If we've seen this pair before, get the id. Otherwise, make a new state for it and remember it.
-                let next = if let Some(existing) = pair_to_state.get(&next_pair) {
-                    *existing
-                } else {
-                    let state_kind =
-                        self.state_kinds[left_next.id()] | other.state_kinds[right_next.id()];
-                    let new_id = dfa.new_state(state_kind);
-                    pair_to_state.insert(next_pair, new_id);
-                    new_id
-                };
-                merged_out.push((range, next));
-            }
-
-            dfa.set_transitions(state_id, RangeMapBlaze::from_iter(merged_out));
+            dfa.set_transitions(state_id, merged_out);
             cursor += 1;
         }
         dfa.assert_invariants();
