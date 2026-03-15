@@ -49,11 +49,9 @@ fn inner_main() -> io::Result<()> {
 
     // display_dfa(&ident)?;
     display_dfa(&not_ident)?;
-    // display_full(&not_ident)?;
 
     let not_ident = not_ident.minimize();
     display_dfa(&not_ident)?;
-    // display_full(&not_ident)?;
 
     println!("Identifier showcase passed!");
     Ok(())

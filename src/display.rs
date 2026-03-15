@@ -13,24 +13,7 @@ pub fn display_dfa(dfa: &Dfa) -> io::Result<()> {
         dfa.transitions(),
         |index| dfa.is_accepting_index(index),
         |state| state.id(),
-        LabelStyle::FirstChar,
     )
-}
-
-pub fn display_full(dfa: &Dfa) -> io::Result<()> {
-    display_transitions(
-        dfa.start_state(),
-        dfa.transitions(),
-        |index| dfa.is_accepting_index(index),
-        |state| state.id(),
-        LabelStyle::FullRangeSet,
-    )
-}
-
-#[derive(Clone, Copy)]
-enum LabelStyle {
-    FirstChar,
-    FullRangeSet,
 }
 
 fn display_transitions<State, FAcceptByIndex, FIndex>(
@@ -38,7 +21,6 @@ fn display_transitions<State, FAcceptByIndex, FIndex>(
     transitions: &[RangeMapBlaze<char, State>],
     is_accepting_by_index: FAcceptByIndex,
     state_index: FIndex,
-    label_style: LabelStyle,
 ) -> io::Result<()>
 where
     State: Copy + Eq,
@@ -66,31 +48,23 @@ where
 
         for (to_index, ranges) in ranges_by_destination.into_iter().enumerate() {
             if !ranges.is_empty() {
-                let label = match label_style {
-                    LabelStyle::FirstChar => {
-                        let first_char = ranges
-                            .iter()
-                            .map(|range| *range.start())
-                            .min()
-                            .expect("non-empty ranges has minimum start char");
-                        let full_set = RangeSetBlaze::from_iter(ranges);
-                        let full_set_text = full_set.to_string();
-                        if let Some((existing_short_label, _)) = legend_entries
-                            .iter()
-                            .find(|(_, existing_full_set)| *existing_full_set == full_set_text)
-                        {
-                            existing_short_label.clone()
-                        } else {
-                            let superscript_index = legend_entries.len() + 1;
-                            let short_label = short_edge_label(first_char, superscript_index);
-                            legend_entries.push((short_label.clone(), full_set_text));
-                            short_label
-                        }
-                    }
-                    LabelStyle::FullRangeSet => {
-                        let full_set = RangeSetBlaze::from_iter(ranges);
-                        escape_dot_text_label(&full_set.to_string())
-                    }
+                let first_char = ranges
+                    .iter()
+                    .map(|range| *range.start())
+                    .min()
+                    .expect("non-empty ranges has minimum start char");
+                let full_set = RangeSetBlaze::from_iter(ranges);
+                let full_set_text = format_char_extremes(&full_set.to_string());
+                let label = if let Some((existing_short_label, _)) = legend_entries
+                    .iter()
+                    .find(|(_, existing_full_set)| *existing_full_set == full_set_text)
+                {
+                    existing_short_label.clone()
+                } else {
+                    let superscript_index = legend_entries.len() + 1;
+                    let short_label = short_edge_label(first_char, superscript_index);
+                    legend_entries.push((short_label.clone(), full_set_text));
+                    short_label
                 };
                 dot.push_str(&format!("  s{from_index} -> s{to_index} [label=\"{label}\"];\n"));
             }
@@ -99,11 +73,9 @@ where
 
     if !legend_entries.is_empty() {
         let legend_label = build_legend_html(&legend_entries);
-        dot.push_str(&format!(
-            "  __key [shape=box, label=<{legend_label}>, fontsize=14, margin=\"0.25,0.15\"];\n"
-        ));
-        dot.push_str("  { rank=sink; __key; }\n");
-        dot.push_str("  s0 -> __key [style=invis, weight=0];\n");
+        dot.push_str("  labelloc=\"b\";\n");
+        dot.push_str("  labeljust=\"l\";\n");
+        dot.push_str(&format!("  label=<{legend_label}>;\n"));
     }
 
     dot.push_str("}\n");
@@ -175,12 +147,6 @@ fn escape_dot_char_label(ch: char) -> String {
     }
 }
 
-fn escape_dot_text_label(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-}
-
 fn superscript_number(number: usize) -> String {
     const SUPERSCRIPTS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
     number
@@ -223,4 +189,8 @@ fn escape_html_label(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+fn format_char_extremes(text: &str) -> String {
+    text.replace("'\\u{10ffff}'", "char::MAX")
 }
