@@ -1,7 +1,7 @@
 use std::io;
 
 use range_map_regex::dfa::Dfa;
-use range_map_regex::display::display_dfa;
+use range_map_regex::display::display_char;
 
 fn main() {
     if let Err(err) = inner_main() {
@@ -47,11 +47,11 @@ fn inner_main() -> io::Result<()> {
     assert!(not_ident.is_match("a-b"));
     assert!(not_ident.is_match("🤖"));
 
-    // display_dfa(&ident)?;
-    display_dfa(&not_ident)?;
+    // display_char(&ident)?;
+    display_char(&not_ident)?;
 
     let not_ident = not_ident.minimize();
-    display_dfa(&not_ident)?;
+    display_char(&not_ident)?;
 
     println!("Identifier showcase passed!");
     Ok(())

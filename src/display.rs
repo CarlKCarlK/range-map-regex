@@ -7,13 +7,26 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::dfa::Dfa;
 use range_set_blaze::{RangeMapBlaze, RangeSetBlaze};
 
-pub fn display_dfa(dfa: &Dfa) -> io::Result<()> {
+pub fn display_char(dfa: &Dfa) -> io::Result<()> {
     display_transitions(
         dfa.start_state(),
         dfa.transitions(),
         |index| dfa.is_accepting_index(index),
         |state| state.id(),
     )
+}
+
+pub fn display_byte(dfa: &Dfa<u8>) -> io::Result<()> {
+    display_transitions_u8(
+        dfa.start_state(),
+        dfa.transitions(),
+        |index| dfa.is_accepting_index(index),
+        |state| state.id(),
+    )
+}
+
+pub fn display_dfa(dfa: &Dfa) -> io::Result<()> {
+    display_char(dfa)
 }
 
 fn display_transitions<State, FAcceptByIndex, FIndex>(
@@ -134,6 +147,123 @@ or `xdg-utils`. SVG file: {}",
     Ok(())
 }
 
+fn display_transitions_u8<State, FAcceptByIndex, FIndex>(
+    start: State,
+    transitions: &[RangeMapBlaze<u8, State>],
+    is_accepting_by_index: FAcceptByIndex,
+    state_index: FIndex,
+) -> io::Result<()>
+where
+    State: Copy + Eq,
+    FAcceptByIndex: Fn(usize) -> bool,
+    FIndex: Fn(State) -> usize,
+{
+    let mut dot = String::from("digraph TinyRegex {\n  rankdir=LR;\n");
+    dot.push_str("  __start [shape=point];\n");
+    dot.push_str(&format!("  __start -> s{};\n", state_index(start)));
+    let mut legend_entries: Vec<(String, String)> = Vec::new();
+
+    for state_index_value in 0..transitions.len() {
+        let is_accept = is_accepting_by_index(state_index_value);
+        let shape = if is_accept { "doublecircle" } else { "circle" };
+        dot.push_str(&format!("  s{state_index_value} [shape={shape}];\n"));
+    }
+
+    for (from_index, state_transitions) in transitions.iter().enumerate() {
+        let mut ranges_by_destination: Vec<Vec<std::ops::RangeInclusive<u8>>> =
+            vec![Vec::new(); transitions.len()];
+        for (range, to_state) in state_transitions.range_values() {
+            let to_index = state_index(*to_state);
+            ranges_by_destination[to_index].push(range);
+        }
+
+        for (to_index, ranges) in ranges_by_destination.into_iter().enumerate() {
+            if !ranges.is_empty() {
+                let first_byte = ranges
+                    .iter()
+                    .map(|range| *range.start())
+                    .min()
+                    .expect("non-empty ranges has minimum start byte");
+                let full_set = RangeSetBlaze::from_iter(ranges);
+                let full_set_text = format_byte_extremes(&full_set.to_string());
+                let label = if let Some((existing_short_label, _)) = legend_entries
+                    .iter()
+                    .find(|(_, existing_full_set)| *existing_full_set == full_set_text)
+                {
+                    existing_short_label.clone()
+                } else {
+                    let superscript_index = legend_entries.len() + 1;
+                    let short_label = short_edge_label_u8(first_byte, superscript_index);
+                    legend_entries.push((short_label.clone(), full_set_text));
+                    short_label
+                };
+                dot.push_str(&format!("  s{from_index} -> s{to_index} [label=\"{label}\"];\n"));
+            }
+        }
+    }
+
+    if !legend_entries.is_empty() {
+        let legend_label = build_legend_html(&legend_entries);
+        dot.push_str("  labelloc=\"b\";\n");
+        dot.push_str("  labeljust=\"l\";\n");
+        dot.push_str(&format!("  label=<{legend_label}>;\n"));
+    }
+
+    dot.push_str("}\n");
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_millis();
+    let base_name = format!("tiny_regex_{stamp}");
+    let dot_path: PathBuf = std::env::temp_dir().join(format!("{base_name}.dot"));
+    let svg_path: PathBuf = std::env::temp_dir().join(format!("{base_name}.svg"));
+
+    fs::write(&dot_path, dot)?;
+
+    let dot_status = Command::new("dot")
+        .arg("-Tsvg")
+        .arg(&dot_path)
+        .arg("-o")
+        .arg(&svg_path)
+        .status()
+        .map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!(
+                    "failed to run `dot` (install Graphviz). DOT file: {}",
+                    dot_path.display()
+                ),
+            )
+        })?;
+    if !dot_status.success() {
+        return Err(io::Error::other("`dot` failed to render graph"));
+    }
+
+    let open_status = Command::new("wslview").arg(&svg_path).status();
+    let open_status = match open_status {
+        Ok(status) if status.success() => status,
+        _ => Command::new("xdg-open")
+            .arg(&svg_path)
+            .status()
+            .map_err(|err| {
+                io::Error::new(
+                    err.kind(),
+                    format!(
+                        "failed to run `wslview` or `xdg-open`. Install `wslu` (for WSL) \
+or `xdg-utils`. SVG file: {}",
+                        svg_path.display()
+                    ),
+                )
+            })?,
+    };
+    if !open_status.success() {
+        return Err(io::Error::other("viewer command failed to open graph"));
+    }
+
+    Ok(())
+}
+
 fn escape_dot_char_label(ch: char) -> String {
     match ch {
         '"' => "\\\"".to_owned(),
@@ -169,6 +299,10 @@ fn short_edge_label(first_char: char, superscript_index: usize) -> String {
     )
 }
 
+fn short_edge_label_u8(byte: u8, superscript_index: usize) -> String {
+    format!("{byte}{}", superscript_number(superscript_index))
+}
+
 fn build_legend_html(legend_entries: &[(String, String)]) -> String {
     let mut html = String::from(
         "<TABLE BORDER=\"0\" CELLBORDER=\"0\" CELLPADDING=\"2\" CELLSPACING=\"0\">",
@@ -193,4 +327,8 @@ fn escape_html_label(text: &str) -> String {
 
 fn format_char_extremes(text: &str) -> String {
     text.replace("'\\u{10ffff}'", "char::MAX")
+}
+
+fn format_byte_extremes(text: &str) -> String {
+    text.replace("255", "u8::MAX")
 }

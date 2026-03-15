@@ -7,3 +7,13 @@ edition = "2024"
 indexmap = "2"
 range-set-blaze = { path = "../range-set-blaze" }
 unicode-ident = "1"
+
+[profile.dev]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.test]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false

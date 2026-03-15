@@ -1,7 +1,7 @@
 use std::io;
 
 use range_map_regex::dfa::Dfa;
-use range_map_regex::display::display_char;
+use range_map_regex::display::display_byte;
 
 fn main() {
     if let Err(err) = inner_main() {
@@ -11,49 +11,24 @@ fn main() {
 }
 
 fn inner_main() -> io::Result<()> {
-    // This example is intentionally "Rust-like" rather than a full lexer clone.
-    let float_literal = rust_like_float_literal_dfa();
+    let float_char = rust_like_float_literal_dfa();
+    let minimized_char = float_char.minimize();
 
-    for valid in [
-        "123.0f64",
-        "0.1f64",
-        "12E+99_f64",
-        "5f32",
-        "2.",
-        "1e10",
-        "1.e10",
-        "2E+9f64",
-        "3.14e-2",
-        "1_000.0",
-        "1_000f32",
-        "10f64",
-    ] {
-        assert!(float_literal.is_match(valid), "expected valid: {valid}");
-    }
+    let byte_dfa = minimized_char.to_utf8_dfa();
+    let minimized_byte = byte_dfa.minimize();
 
-    for invalid in [
-        "-1.0",   // unary minus is separate from the literal token
-        "2e",     // exponent must have digits
-        "0x80.0", // non-decimal radices are not float literals
-        "f64",
-        ".5",
-        "5",
-        "1__0",
-        "1._",
-        "1._0",
-        "1e+",
-        "10f16",
-    ] {
-        assert!(!float_literal.is_match(invalid), "expected invalid: {invalid}");
-    }
+    println!(
+        "Char DFA states: before = {}, after = {}",
+        float_char.state_count(),
+        minimized_char.state_count()
+    );
+    println!(
+        "Byte DFA states: before = {}, after = {}",
+        byte_dfa.state_count(),
+        minimized_byte.state_count()
+    );
 
-    let before_states = float_literal.state_count();
-    let minimized = float_literal.minimize();
-    let after_states = minimized.state_count();
-    println!("DFA states: before minimize = {before_states}, after minimize = {after_states}");
-    display_char(&minimized)?;
-
-    println!("Rust-like float literal showcase passed!");
+    display_byte(&minimized_byte)?;
     Ok(())
 }
 

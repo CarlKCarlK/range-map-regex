@@ -29,12 +29,12 @@ fn inner_main() -> io::Result<()> {
     let empty = Dfa::empty();
     assert!(!empty.is_match(""));
     assert!(!empty.is_match("a"));
-    // display_dfa(&empty)?;
+    // display_char(&empty)?;
 
     let epsilon = Dfa::epsilon();
     assert!(epsilon.is_match(""));
     assert!(!epsilon.is_match("a"));
-    // display_dfa(&epsilon)?;
+    // display_char(&epsilon)?;
 
     let lower_case = Dfa::from_char_range('a'..='z');
 
@@ -61,9 +61,9 @@ fn inner_main() -> io::Result<()> {
     assert!(!lower_star.is_match("A"));
     assert!(!lower_star.is_match("aA"));
     assert!(!lower_star.is_match("7"));
-    // display_dfa(&lower_star)?;
+    // display_char(&lower_star)?;
     // let lower_star = lower_star.minimize();
-    // display_dfa(&lower_star)?;
+    // display_char(&lower_star)?;
 
     let empty_star = empty.star();
     assert!(empty_star.is_match(""));
@@ -113,7 +113,7 @@ fn inner_main() -> io::Result<()> {
     assert!(!minimized_letter.is_match("7"));
     assert!(!minimized_letter.is_match("é"));
 
-    // display_dfa(&minimized_letter)?;
+    // display_char(&minimized_letter)?;
 
     println!("All tests passed!");
     Ok(())

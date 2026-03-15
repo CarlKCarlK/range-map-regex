@@ -215,3 +215,28 @@ fn digits_with_underscores_dfa() -> Dfa {
     let underscore_then_digits = Dfa::from_char('_').concat(&digit.plus());
     digit.plus().concat(&underscore_then_digits.star())
 }
+
+#[test]
+#[ignore = "to_utf8_dfa is currently correctness-first and still expensive"]
+fn utf8_lowering_matches_char_dfa_behavior() {
+    let char_dfa = Dfa::from_char('é')
+        .union(&Dfa::string("hi"))
+        .union(&Dfa::from_char('🤖'));
+    let byte_dfa = char_dfa.to_utf8_dfa();
+
+    for valid in ["é", "hi", "🤖"] {
+        assert!(char_dfa.is_match(valid));
+        assert!(byte_dfa.is_match_bytes(valid.as_bytes()));
+    }
+
+    for invalid_text in ["e", "h", "hii", "🤖🤖", ""] {
+        assert!(!char_dfa.is_match(invalid_text));
+        assert!(!byte_dfa.is_match_bytes(invalid_text.as_bytes()));
+    }
+
+    // Invalid UTF-8 byte sequences should reject.
+    assert!(!byte_dfa.is_match_bytes(&[0xC3]));
+    assert!(!byte_dfa.is_match_bytes(&[0x80]));
+    assert!(!byte_dfa.is_match_bytes(&[0xFF]));
+    assert!(!byte_dfa.is_match_bytes(&[0xF0, 0x80, 0x80, 0x80])); // overlong NUL
+}
