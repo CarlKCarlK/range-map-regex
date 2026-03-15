@@ -6,6 +6,18 @@ use range_set_blaze::{Integer, RangeMapBlaze, RangeSetBlaze, SortedDisjointMap};
 
 const CHAR_UNIVERSE: RangeInclusive<char> = char::MIN..=char::MAX;
 
+fn map_values<K, V, W>(
+    map: &RangeMapBlaze<K, V>,
+    mut f: impl FnMut(&V) -> W,
+) -> RangeMapBlaze<K, W>
+where
+    K: Integer,
+    V: Eq + Clone,
+    W: Eq + Clone,
+{
+    RangeMapBlaze::from_iter(map.range_values().map(|(range, value)| (range, f(value))))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StateId {
     id: usize,
@@ -306,6 +318,12 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
 
         let start_active = StateIdSet::from_state(self.start);
         let mut dfa = Self::new(StateKind::Accepting);
+        // `StateKind` is intentionally part of the key.
+        // The same active subset may occur with different boundary acceptance.
+        // Example: `Dfa::empty().star()` has `{start}` at:
+        // - start boundary (accepting, for zero repetitions), and
+        // - after consuming any symbol (rejecting).
+        // If keyed only by subset, those two states would merge incorrectly.
         let mut key_to_state: IndexMap<(StateIdSet, StateKind), StateId> = IndexMap::new();
         key_to_state.insert((start_active, StateKind::Accepting), dfa.start);
 
@@ -453,14 +471,11 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         for block in 0..block_count {
             let rep = representative[block].expect("block has a representative");
             let state = block_to_state[block].expect("block has a mapped state");
-            let mapped = self.transitions[rep].range_values().map(|(range, next)| {
-                (
-                    range,
-                    block_to_state[block_of[next.id()].expect("reachable state has a block")]
-                        .expect("block has a mapped state"),
-                )
+            let mapped = map_values(&self.transitions[rep], |next| {
+                block_to_state[block_of[next.id()].expect("reachable state has a block")]
+                    .expect("block has a mapped state")
             });
-            minimized.set_transitions(state, RangeMapBlaze::from_iter(mapped));
+            minimized.set_transitions(state, mapped);
         }
 
         minimized.assert_invariants();
@@ -526,11 +541,7 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         };
 
         // For the 1st source, the transition is to the singleton set of its target on each symbol.
-        let mut acc = RangeMapBlaze::from_iter(
-            self.transitions[first.id()]
-                .range_values()
-                .map(|(range, next)| (range, StateIdSet::from_state(*next))),
-        );
+        let mut acc = map_values(&self.transitions[first.id()], |next| StateIdSet::from_state(*next));
 
         // For each subsequent source, intersect the current map with the singleton map of its targets, and union the targets into the resulting sets.
         for source in iter {
