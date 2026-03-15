@@ -184,8 +184,7 @@ where
                     .map(|range| *range.start())
                     .min()
                     .expect("non-empty ranges has minimum start byte");
-                let full_set = RangeSetBlaze::from_iter(ranges);
-                let full_set_text = format_byte_extremes(&full_set.to_string());
+                let full_set_text = byte_range_set_text(&ranges);
                 let label = if let Some((existing_short_label, _)) = legend_entries
                     .iter()
                     .find(|(_, existing_full_set)| *existing_full_set == full_set_text)
@@ -300,7 +299,11 @@ fn short_edge_label(first_char: char, superscript_index: usize) -> String {
 }
 
 fn short_edge_label_u8(byte: u8, superscript_index: usize) -> String {
-    format!("{byte}{}", superscript_number(superscript_index))
+    format!(
+        "{}{}",
+        format_byte_token(byte),
+        superscript_number(superscript_index)
+    )
 }
 
 fn build_legend_html(legend_entries: &[(String, String)]) -> String {
@@ -329,6 +332,34 @@ fn format_char_extremes(text: &str) -> String {
     text.replace("'\\u{10ffff}'", "char::MAX")
 }
 
-fn format_byte_extremes(text: &str) -> String {
-    text.replace("255", "u8::MAX")
+fn format_byte_token(byte: u8) -> String {
+    match byte {
+        b'\n' => "\\n".to_owned(),
+        b'\r' => "\\r".to_owned(),
+        b'\t' => "\\t".to_owned(),
+        b'\\' => "'\\\\'".to_owned(),
+        b'\'' => "'\\''".to_owned(),
+        b' '..=b'~' => format!("'{}'", byte as char),
+        u8::MAX => "u8::MAX".to_owned(),
+        _ => byte.to_string(),
+    }
+}
+
+fn format_byte_range(range: &std::ops::RangeInclusive<u8>) -> String {
+    let start = *range.start();
+    let end = *range.end();
+    if start == end {
+        format_byte_token(start)
+    } else {
+        format!("{}..={}", format_byte_token(start), format_byte_token(end))
+    }
+}
+
+fn byte_range_set_text(ranges: &[std::ops::RangeInclusive<u8>]) -> String {
+    let normalized = RangeSetBlaze::from_iter(ranges.iter().cloned());
+    normalized
+        .ranges()
+        .map(|range| format_byte_range(&range))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

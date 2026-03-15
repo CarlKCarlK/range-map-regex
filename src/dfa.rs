@@ -756,12 +756,59 @@ impl Dfa<char> {
             });
         let canonical_product = |mut product_state: ProductState| {
             if let Some(reject_sink) = reject_sink_char_state {
-                if product_state.char_state == reject_sink || product_state.decode_state == DecodeState::Reject {
+                if product_state.char_state == reject_sink
+                    || product_state.decode_state == DecodeState::Reject
+                {
                     product_state.char_state = reject_sink;
                     product_state.decode_state = DecodeState::Ready;
                 }
             }
             product_state
+        };
+        let lead_byte_codepoint_range = |lead_byte: u8| -> Option<(u32, u32)> {
+            match lead_byte {
+                0xC2..=0xDF => {
+                    let prefix = (lead_byte & 0x1F) as u32;
+                    let min = prefix << 6;
+                    Some((min, min | 0x3F))
+                }
+                0xE0 => Some((0x800, 0xFFF)),
+                0xE1..=0xEC => {
+                    let prefix = (lead_byte & 0x0F) as u32;
+                    let min = prefix << 12;
+                    Some((min, min | 0xFFF))
+                }
+                0xED => Some((0xD000, 0xD7FF)),
+                0xEE..=0xEF => {
+                    let prefix = (lead_byte & 0x0F) as u32;
+                    let min = prefix << 12;
+                    Some((min, min | 0xFFF))
+                }
+                0xF0 => Some((0x10000, 0x3FFFF)),
+                0xF1..=0xF3 => {
+                    let prefix = (lead_byte & 0x07) as u32;
+                    let min = prefix << 18;
+                    Some((min, min | 0x3FFFF))
+                }
+                0xF4 => Some((0x100000, 0x10FFFF)),
+                _ => None,
+            }
+        };
+        let can_transition_on_lead_byte = |char_state: StateId, lead_byte: u8| -> bool {
+            let Some(reject_sink) = reject_sink_char_state else {
+                return true;
+            };
+            let Some((codepoint_start, codepoint_end)) = lead_byte_codepoint_range(lead_byte) else {
+                return false;
+            };
+            self.transitions[char_state.id()]
+                .range_values()
+                .filter(|(_, next_state)| **next_state != reject_sink)
+                .any(|(char_range, _)| {
+                    let range_start = *char_range.start() as u32;
+                    let range_end = *char_range.end() as u32;
+                    !(range_end < codepoint_start || codepoint_end < range_start)
+                })
         };
         product_to_state.insert(canonical_product(start_product), utf8_dfa.start);
         let byte_classes = RangeMapBlaze::from_iter([
@@ -794,24 +841,23 @@ impl Dfa<char> {
                 }
                 byte_transitions.push((range, target_state));
             };
+            let reject_product = canonical_product(ProductState {
+                char_state: self.start,
+                decode_state: DecodeState::Reject,
+            });
+            let reject_target_state = if let Some(existing) = product_to_state.get(&reject_product) {
+                *existing
+            } else {
+                let new_state = utf8_dfa.new_state(StateKind::Rejecting);
+                product_to_state.insert(reject_product, new_state);
+                new_state
+            };
 
             for (byte_range, byte_class) in byte_classes.range_values() {
                 let product_state = canonical_product(product_state);
                 match (product_state.decode_state, byte_class) {
                     (DecodeState::Reject, _) => {
-                        let reject_product = canonical_product(ProductState {
-                            char_state: self.start,
-                            decode_state: DecodeState::Reject,
-                        });
-                        let target_state = if let Some(existing) = product_to_state.get(&reject_product)
-                        {
-                            *existing
-                        } else {
-                            let new_state = utf8_dfa.new_state(StateKind::Rejecting);
-                            product_to_state.insert(reject_product, new_state);
-                            new_state
-                        };
-                        push_transition(byte_range.clone(), target_state);
+                        push_transition(byte_range.clone(), reject_target_state);
                     }
                     (DecodeState::Ready, ByteClass::Ascii) => {
                         // For ASCII, UTF-8 decoding is identity and we can reuse the char transition partition.
@@ -855,6 +901,10 @@ impl Dfa<char> {
                         | ByteClass::Lead4F4,
                     ) => {
                         for byte in *byte_range.start()..=*byte_range.end() {
+                            if !can_transition_on_lead_byte(product_state.char_state, byte) {
+                                push_transition(byte..=byte, reject_target_state);
+                                continue;
+                            }
                             let next_product = canonical_product(match decode_step(product_state.decode_state, byte) {
                                 DecodeStep::Pending(next_decode_state) => ProductState {
                                     char_state: product_state.char_state,
@@ -891,19 +941,7 @@ impl Dfa<char> {
                         DecodeState::Ready,
                         ByteClass::ContLow | ByteClass::ContMid | ByteClass::ContHigh | ByteClass::Invalid,
                     ) => {
-                        let reject_product = canonical_product(ProductState {
-                            char_state: self.start,
-                            decode_state: DecodeState::Reject,
-                        });
-                        let target_state = if let Some(existing) = product_to_state.get(&reject_product)
-                        {
-                            *existing
-                        } else {
-                            let new_state = utf8_dfa.new_state(StateKind::Rejecting);
-                            product_to_state.insert(reject_product, new_state);
-                            new_state
-                        };
-                        push_transition(byte_range.clone(), target_state);
+                        push_transition(byte_range.clone(), reject_target_state);
                     }
                     (
                         DecodeState::Pending { .. },
@@ -943,19 +981,7 @@ impl Dfa<char> {
                         }
                     }
                     (DecodeState::Pending { .. }, _) => {
-                        let reject_product = canonical_product(ProductState {
-                            char_state: self.start,
-                            decode_state: DecodeState::Reject,
-                        });
-                        let target_state = if let Some(existing) = product_to_state.get(&reject_product)
-                        {
-                            *existing
-                        } else {
-                            let new_state = utf8_dfa.new_state(StateKind::Rejecting);
-                            product_to_state.insert(reject_product, new_state);
-                            new_state
-                        };
-                        push_transition(byte_range.clone(), target_state);
+                        push_transition(byte_range.clone(), reject_target_state);
                     }
                 }
             }
