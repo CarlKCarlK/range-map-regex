@@ -181,12 +181,9 @@ impl Dfa {
     }
 
     pub fn string(s: &str) -> Self {
-        let mut dfa = Dfa::epsilon();
-        for ch in s.chars() {
-            let one_char = Dfa::from_char_range(ch..=ch);
-            dfa = dfa.concat(&one_char);
-        }
-        dfa
+        s.chars().fold(Dfa::epsilon(), |dfa, ch| {
+            dfa.concat(&Dfa::from_char_range(ch..=ch))
+        })
     }
 
     pub fn union(&self, other: &Self) -> Self {
@@ -236,7 +233,7 @@ impl Dfa {
     pub fn intersection(&self, other: &Self) -> Self {
         self.assert_invariants();
         other.assert_invariants();
-        let start_kind = self.state_kinds[self.start.id()] & other.state_kinds[other.start.id()];
+        let start_kind = self.state_kind(self.start) & other.state_kind(other.start);
         let mut dfa = Dfa::new(start_kind);
 
         let mut pair_to_state: IndexMap<(StateId, StateId), StateId> = IndexMap::new();
@@ -244,26 +241,25 @@ impl Dfa {
 
         let mut cursor = 0;
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
-            let mut merged_out = Vec::new();
-            for (range, (left_next, right_next)) in self.transitions[left_state.id()]
-                .range_values()
-                .zip_intersection(other.transitions[right_state.id()].range_values())
-            {
-                let left_next = *left_next;
-                let right_next = *right_next;
-                let next_pair = (left_next, right_next);
-                let next = if let Some(existing) = pair_to_state.get(&next_pair) {
-                    *existing
-                } else {
-                    let state_kind =
-                        self.state_kinds[left_next.id()] & other.state_kinds[right_next.id()];
-                    let new_id = dfa.new_state(state_kind);
-                    pair_to_state.insert(next_pair, new_id);
-                    new_id
-                };
-                merged_out.push((range, next));
-            }
-            dfa.set_transitions(state_id, RangeMapBlaze::from_iter(merged_out));
+            let merged_out = RangeMapBlaze::from_iter(
+                self.transitions[left_state.id()]
+                    .range_values()
+                    .zip_intersection(other.transitions[right_state.id()].range_values())
+                    .map(|(range, (left_next, right_next))| {
+                        let next_pair = (*left_next, *right_next);
+                        let next = if let Some(existing) = pair_to_state.get(&next_pair) {
+                            *existing
+                        } else {
+                            let state_kind =
+                                self.state_kind(next_pair.0) & other.state_kind(next_pair.1);
+                            let new_id = dfa.new_state(state_kind);
+                            pair_to_state.insert(next_pair, new_id);
+                            new_id
+                        };
+                        (range, next)
+                    }),
+            );
+            dfa.set_transitions(state_id, merged_out);
             cursor += 1;
         }
 
@@ -273,21 +269,22 @@ impl Dfa {
 
     pub fn complement(&self) -> Self {
         self.assert_invariants();
-        let complemented = Dfa {
+        let dfa = Dfa {
             start: self.start,
             state_kinds: self
                 .state_kinds
                 .iter()
-                .map(|kind| kind.complement())
+                .copied()
+                .map(StateKind::complement)
                 .collect(),
             transitions: self.transitions.clone(),
         };
-        complemented.assert_invariants();
-        complemented
+        dfa.assert_invariants();
+        dfa
     }
 
     pub fn optional(&self) -> Self {
-        self.union(&Dfa::epsilon())
+        Dfa::epsilon().union(self)
     }
 
     pub fn plus(&self) -> Self {
