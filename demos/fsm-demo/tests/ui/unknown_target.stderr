@@ -1,5 +1,5 @@
 error[E0425]: cannot find value `Wrod` in this scope
- --> tests/ui/fsm_unknown_target.rs:6:34
+ --> tests/ui/unknown_target.rs:6:34
   |
 6 |         Start { on: [('a'..='z', Wrod)] },
   |                                  ^^^^

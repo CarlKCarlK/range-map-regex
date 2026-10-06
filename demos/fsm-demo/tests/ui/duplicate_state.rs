@@ -1,4 +1,4 @@
-use range_map_regex::declare::fsm;
+use fsm_demo::fsm;
 
 fsm! {
     pub Ident {

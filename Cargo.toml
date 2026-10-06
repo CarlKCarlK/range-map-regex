@@ -3,18 +3,18 @@ name = "range-map-regex"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [".", "demos/fsm-demo"]
+# Plain `cargo` commands build only the library; use `--workspace` for the demo.
+default-members = ["."]
+
 [dependencies]
-const-structures = { path = "../const-structures", optional = true }
 indexmap = "2"
+# TODO Return to `path = "../range-set-blaze"` (or a release) once
+# `RangeMapBlaze::universe_with` and `inner_join` are merged into range-set-blaze's
+# main branch. Until then they exist only on its `regex` branch.
 range-set-blaze = { git = "https://github.com/CarlKCarlK/range-set-blaze", branch = "regex" }
 unicode-ident = "1"
-
-[dev-dependencies]
-trybuild = "1"
-
-[features]
-# Experimental keyword-based declaration macros (`dfa!`, `fsm!`, `float_literal!`).
-declare = ["dep:const-structures"]
 
 [profile.dev]
 opt-level = 3
@@ -25,19 +25,3 @@ overflow-checks = false
 opt-level = 3
 debug-assertions = false
 overflow-checks = false
-
-[[example]]
-name = "declare_float_literals"
-required-features = ["declare"]
-
-[[example]]
-name = "declare_identifier"
-required-features = ["declare"]
-
-[[test]]
-name = "declare_ui"
-required-features = ["declare"]
-
-[[test]]
-name = "declare"
-required-features = ["declare"]

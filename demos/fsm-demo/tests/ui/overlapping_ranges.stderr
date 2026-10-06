@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked: state `Start` has overlapping or empty transition ranges
- --> tests/ui/fsm_overlapping_ranges.rs:3:1
+ --> tests/ui/overlapping_ranges.rs:3:1
   |
 3 | / fsm! {
 4 | |     pub Ident {

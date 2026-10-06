@@ -1,10 +1,10 @@
-use range_map_regex::declare::fsm;
+use fsm_demo::fsm;
 
 fsm! {
     pub Ident {
-        start: Begin,
+        start: Start,
         Start { on: [('a'..='z', Word)] },
-        Word { accept: true },
+        Word { acept: true },
     }
 }
 

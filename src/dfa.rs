@@ -114,6 +114,22 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
     ///
     /// Panics if `accepting` and `transitions` differ in length, if `start` or a target
     /// is not a state index, if a range is empty, or if two ranges of one state overlap.
+    ///
+    /// ```rust,no_run
+    /// use range_map_regex::dfa::Dfa;
+    ///
+    /// // Binary numbers without a leading zero. State 0 is the start, 1 is "0", 2 is "1…".
+    /// let binary = Dfa::from_transitions(
+    ///     0,
+    ///     &[false, true, true],
+    ///     &[vec![('0'..='0', 1), ('1'..='1', 2)], vec![], vec![('0'..='1', 2)]],
+    /// );
+    /// assert!(binary.is_match("0"));
+    /// assert!(binary.is_match("1011"));
+    /// assert!(!binary.is_match("01")); // state 1 has no transitions
+    /// ```
+    ///
+    /// For named states, see [`StateMachine`](crate::fsm::StateMachine).
     pub fn from_transitions(
         start: usize,
         accepting: &[bool],
@@ -575,9 +591,9 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
     /// ```rust,no_run
     /// use range_map_regex::dfa::Dfa;
     ///
-    /// let a = Dfa::from_char('a');
-    /// assert!(a.intersection(&Dfa::from_char('b')).is_empty_language());
-    /// assert!(a.is_equivalent(&Dfa::string("a")));
+    /// let lower = Dfa::from_char_range('a'..='z');
+    /// assert!(lower.intersection(&Dfa::from_char('A')).is_empty_language());
+    /// assert!(!lower.is_empty_language());
     /// ```
     pub fn is_empty_language(&self) -> bool {
         self.assert_invariants();
@@ -600,7 +616,18 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
     }
 
     /// Whether both DFAs accept exactly the same inputs.
-    /// See [`Dfa::is_empty_language`] for an example.
+    ///
+    /// It checks that each DFA's language minus the other's is empty, so it is exact,
+    /// not a comparison on sample strings.
+    ///
+    /// ```rust,no_run
+    /// use range_map_regex::dfa::Dfa;
+    ///
+    /// let a_plus = Dfa::from_char('a').plus();
+    /// let a_a_star = Dfa::from_char('a').concat(&Dfa::from_char('a').star());
+    /// assert!(a_plus.is_equivalent(&a_a_star));
+    /// assert!(!a_plus.is_equivalent(&Dfa::from_char('a').star()));
+    /// ```
     pub fn is_equivalent(&self, other: &Self) -> bool {
         self.intersection(&other.complement()).is_empty_language()
             && other.intersection(&self.complement()).is_empty_language()

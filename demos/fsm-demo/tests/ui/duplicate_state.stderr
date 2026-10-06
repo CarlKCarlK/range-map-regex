@@ -1,5 +1,5 @@
 error: duplicate member `Word`
- --> tests/ui/fsm_duplicate_state.rs:8:9
+ --> tests/ui/duplicate_state.rs:8:9
   |
 8 |         Word {},
   |         ^^^^

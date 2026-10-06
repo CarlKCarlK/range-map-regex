@@ -1,11 +1,12 @@
-//! Tests for the plain-Rust pieces the declaration macros build on.
+//! Tests for `Dfa::from_transitions`, `Dfa::is_equivalent`, the `grammar`
+//! combinators, and `StateMachine`.
 
 use std::{ops::RangeInclusive, sync::OnceLock};
 
 use range_map_regex::{
     dfa::Dfa,
     fsm::{StateMachine, Table, is_disjoint},
-    grammar::{FloatLiteralOptions, alt, chars, float_literal, lit, many, many1, one_of, opt, seq},
+    grammar::{alt, chars, lit, many, many1, one_of, opt, seq},
 };
 
 #[test]
@@ -64,23 +65,53 @@ fn combinators_match_dfa_methods() {
     assert!(seq([]).is_equivalent(&Dfa::epsilon()));
 }
 
-#[test]
-fn float_literal_options() {
-    let rust = float_literal(&FloatLiteralOptions::RUST);
-    assert!(rust.is_match("12E+99_f64"));
-    assert!(!rust.is_match("1__0"));
+/// The float literal from `examples/float_literals.rs`, built with `Dfa` methods.
+fn float_literal_with_dfa_methods() -> Dfa {
+    let digit = Dfa::from_char_range('0'..='9');
+    let digits = digit
+        .plus()
+        .concat(&Dfa::from_char('_').concat(&digit.plus()).star());
+    let exponent = Dfa::from_char('e')
+        .union(&Dfa::from_char('E'))
+        .concat(&Dfa::from_char('+').union(&Dfa::from_char('-')).optional())
+        .concat(&digits);
+    let suffix = Dfa::string("f32").union(&Dfa::string("f64"));
+    let optional_suffix = Dfa::from_char('_').optional().concat(&suffix).optional();
+    digits
+        .concat(&Dfa::from_char('.'))
+        .concat(&digits.optional())
+        .concat(&exponent.optional())
+        .concat(&optional_suffix)
+        .union(&digits.concat(&exponent).concat(&optional_suffix))
+        .union(&digits.concat(&suffix))
+}
 
-    let plain = float_literal(&FloatLiteralOptions {
-        separator: None,
-        exponent: false,
-        suffixes: &[],
-        ..FloatLiteralOptions::RUST
-    });
-    assert!(plain.is_match("1.5"));
-    assert!(plain.is_match("2."));
-    assert!(!plain.is_match("1_0.5"));
-    assert!(!plain.is_match("1e5"));
-    assert!(!plain.is_match("1.5f64"));
+#[test]
+fn combinators_build_the_float_literal_minimized() {
+    let digit = chars('0'..='9');
+    let digits = seq([many1(digit.clone()), many(seq([lit("_"), many1(digit)]))]);
+    let exponent = seq([one_of("eE"), opt(one_of("+-")), digits.clone()]);
+    let suffix = alt([lit("f32"), lit("f64")]);
+    let optional_suffix = opt(seq([opt(lit("_")), suffix.clone()]));
+    let float = alt([
+        seq([
+            digits.clone(),
+            lit("."),
+            opt(digits.clone()),
+            opt(exponent.clone()),
+            optional_suffix.clone(),
+        ]),
+        seq([digits.clone(), exponent, optional_suffix]),
+        seq([digits, suffix]),
+    ]);
+
+    let with_methods = float_literal_with_dfa_methods();
+    assert!(float.is_equivalent(&with_methods));
+    // The `Dfa` methods don't minimize, so composition grows large; the combinators
+    // minimize every result.
+    assert_eq!(with_methods.state_count(), 3908);
+    assert_eq!(with_methods.minimize().state_count(), 15);
+    assert_eq!(float.state_count(), 15);
 }
 
 const BINARY: RangeInclusive<char> = '0'..='1';

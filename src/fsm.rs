@@ -1,35 +1,44 @@
 //! Finite-state machines with named states, backed by [`RangeMapBlaze`].
 //!
 //! Implement [`StateMachine`] for a field-less enum whose variants are the states.
-//! The trait then provides stepping, matching, and conversion to a [`Dfa`].
+//! The trait then provides stepping ([`StateMachine::step`], [`StateMachine::run`]),
+//! matching ([`StateMachine::is_match`]), and conversion to a [`Dfa`]
+//! ([`StateMachine::to_dfa`]) for composition and minimization.
+//!
+//! Use it when the states themselves matter, for example to report where input
+//! stopped. When only the language matters, compose a [`Dfa`] instead, for example
+//! with the [`grammar`](crate::grammar) combinators.
 //!
 //! ```rust,no_run
 //! use std::{ops::RangeInclusive, sync::OnceLock};
 //!
-//! use range_map_regex::fsm::{StateMachine, Table};
+//! use range_map_regex::{
+//!     dfa::Dfa,
+//!     fsm::{StateMachine, Table},
+//! };
 //!
 //! /// `[A-Za-z_][A-Za-z0-9_]*`, but not `_` alone.
 //! #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-//! enum Ident {
+//! enum Identifier {
 //!     Start,
 //!     Underscore,
 //!     Word,
 //! }
 //!
-//! impl StateMachine for Ident {
-//!     const START: Self = Ident::Start;
-//!     const STATES: &'static [Self] = &[Ident::Start, Ident::Underscore, Ident::Word];
+//! impl StateMachine for Identifier {
+//!     const START: Self = Identifier::Start;
+//!     const STATES: &'static [Self] = &[Identifier::Start, Identifier::Underscore, Identifier::Word];
 //!
 //!     fn index(self) -> usize {
 //!         self as usize
 //!     }
 //!
 //!     fn is_accepting(self) -> bool {
-//!         self == Ident::Word
+//!         self == Identifier::Word
 //!     }
 //!
 //!     fn transitions(self) -> &'static [(RangeInclusive<char>, Self)] {
-//!         use Ident::*;
+//!         use Identifier::*;
 //!         match self {
 //!             Start => &[('a'..='z', Word), ('A'..='Z', Word), ('_'..='_', Underscore)],
 //!             Underscore | Word => &[
@@ -42,15 +51,23 @@
 //!     }
 //!
 //!     fn table() -> &'static Table<Self> {
-//!         static TABLE: OnceLock<Table<Ident>> = OnceLock::new();
+//!         static TABLE: OnceLock<Table<Identifier>> = OnceLock::new();
 //!         TABLE.get_or_init(Table::new)
 //!     }
 //! }
 //!
-//! assert!(Ident::is_match("_tmp"));
-//! assert!(!Ident::is_match("_"));
-//! assert_eq!(Ident::Start.step('_'), Some(Ident::Underscore));
-//! assert_eq!(Ident::Start.step('1'), None);
+//! assert!(Identifier::is_match("_tmp"));
+//! assert!(!Identifier::is_match("_"));
+//! assert_eq!(Identifier::Start.step('_'), Some(Identifier::Underscore));
+//! assert_eq!(Identifier::Start.step('1'), None); // no transition
+//! assert_eq!(Identifier::run("_"), Some(Identifier::Underscore)); // ends in a non-accepting state
+//! assert_eq!(Identifier::run("a-b"), None);
+//!
+//! // Converting to a `Dfa` gives the usual operations, such as excluding keywords.
+//! let keyword = Dfa::string("fn").union(&Dfa::string("let"));
+//! let name = Identifier::to_dfa().intersection(&keyword.complement());
+//! assert!(name.is_match("lets"));
+//! assert!(!name.is_match("fn"));
 //! ```
 
 use std::{fmt::Debug, hash::Hash, ops::RangeInclusive};
@@ -156,7 +173,20 @@ impl<S: StateMachine> Default for Table<S> {
 
 /// Whether every range is non-empty and no two ranges overlap.
 ///
-/// It is a `const fn` so declarations can check their transitions at compile time.
+/// [`Table::new`] checks this at run time. Because it is a `const fn`, a
+/// [`StateMachine`] can also check its transitions at compile time:
+///
+/// ```rust,no_run
+/// use std::ops::RangeInclusive;
+///
+/// use range_map_regex::fsm::is_disjoint;
+///
+/// const DIGIT_TRANSITIONS: &[(RangeInclusive<char>, u8)] = &[('0'..='4', 0), ('5'..='9', 1)];
+/// const _: () = assert!(is_disjoint(DIGIT_TRANSITIONS));
+///
+/// assert!(!is_disjoint(&[('a'..='m', 0), ('k'..='z', 1)])); // overlap
+/// assert!(!is_disjoint(&[('z'..='a', 0)])); // empty range
+/// ```
 pub const fn is_disjoint<S>(transitions: &[(RangeInclusive<char>, S)]) -> bool {
     let mut i = 0;
     while i < transitions.len() {
