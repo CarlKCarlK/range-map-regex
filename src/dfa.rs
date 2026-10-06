@@ -84,6 +84,7 @@ impl BitAnd for StateKind {
     }
 }
 
+#[derive(Clone)]
 pub struct Dfa<S: Integer = char> {
     start: StateId,
     state_kinds: Vec<StateKind>,
@@ -99,6 +100,93 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         let mut dfa = Self::new(StateKind::Accepting);
         let dead = dfa.new_state(StateKind::Rejecting);
         dfa.set_transitions(dfa.start, RangeMapBlaze::universe_with(&dead));
+        dfa.assert_invariants();
+        dfa
+    }
+
+    /// Builds a DFA from an explicit transition table.
+    ///
+    /// State `i` accepts when `accepting[i]` is true, and its outgoing transitions are
+    /// `transitions[i]`, as `(symbols, target_state_index)` pairs. Symbols without a
+    /// transition go to an added dead state, so the input is rejected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `accepting` and `transitions` differ in length, if `start` or a target
+    /// is not a state index, if a range is empty, or if two ranges of one state overlap.
+    pub fn from_transitions(
+        start: usize,
+        accepting: &[bool],
+        transitions: &[Vec<(RangeInclusive<S>, usize)>],
+    ) -> Self {
+        let state_count = accepting.len();
+        assert_eq!(
+            state_count,
+            transitions.len(),
+            "each state needs an accepting flag and a transition list"
+        );
+        assert!(
+            start < state_count,
+            "start state {start} is not a state index"
+        );
+
+        let state_kind = |is_accepting: bool| {
+            if is_accepting {
+                StateKind::Accepting
+            } else {
+                StateKind::Rejecting
+            }
+        };
+        // Declared state `i` becomes `StateId { id: i }`; the dead state comes last.
+        let dead = StateId { id: state_count };
+        let mut state_kinds: Vec<StateKind> = accepting.iter().copied().map(state_kind).collect();
+        state_kinds.push(StateKind::Rejecting);
+        state_kinds.swap(0, start);
+
+        // Swap `start` and 0 so the start state is state 0, as `new` expects.
+        let renumber = |index: usize| StateId {
+            id: if index == start {
+                0
+            } else if index == 0 {
+                start
+            } else {
+                index
+            },
+        };
+
+        let mut maps = vec![RangeMapBlaze::universe_with(&dead); state_count + 1];
+        for (source, edges) in transitions.iter().enumerate() {
+            let mut explicit = RangeSetBlaze::new();
+            for (range, target) in edges {
+                assert!(
+                    range.start() <= range.end(),
+                    "state {source} has an empty range"
+                );
+                assert!(
+                    *target < state_count,
+                    "state {source} targets missing state {target}"
+                );
+                let range_set = RangeSetBlaze::from_iter([range.clone()]);
+                assert!(
+                    explicit.is_disjoint(&range_set),
+                    "state {source} has overlapping transition ranges"
+                );
+                explicit |= range_set;
+            }
+            maps[renumber(source).id()] = RangeMapBlaze::from_iter(
+                std::iter::once((S::min_value()..=S::max_value(), dead)).chain(
+                    edges
+                        .iter()
+                        .map(|(range, target)| (range.clone(), renumber(*target))),
+                ),
+            );
+        }
+
+        let dfa = Self {
+            start: StateId { id: 0 },
+            state_kinds,
+            transitions: maps,
+        };
         dfa.assert_invariants();
         dfa
     }
@@ -480,6 +568,42 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
 
         minimized.assert_invariants();
         minimized
+    }
+
+    /// Whether the DFA accepts no input at all, not even the empty string.
+    ///
+    /// ```rust,no_run
+    /// use range_map_regex::dfa::Dfa;
+    ///
+    /// let a = Dfa::from_char('a');
+    /// assert!(a.intersection(&Dfa::from_char('b')).is_empty_language());
+    /// assert!(a.is_equivalent(&Dfa::string("a")));
+    /// ```
+    pub fn is_empty_language(&self) -> bool {
+        self.assert_invariants();
+        let mut reachable = vec![false; self.transitions.len()];
+        let mut stack = vec![self.start];
+        while let Some(state) = stack.pop() {
+            if std::mem::replace(&mut reachable[state.id()], true) {
+                continue;
+            }
+            if self.is_accepting(state) {
+                return false;
+            }
+            stack.extend(
+                self.transitions[state.id()]
+                    .range_values()
+                    .map(|(_, next)| *next),
+            );
+        }
+        true
+    }
+
+    /// Whether both DFAs accept exactly the same inputs.
+    /// See [`Dfa::is_empty_language`] for an example.
+    pub fn is_equivalent(&self, other: &Self) -> bool {
+        self.intersection(&other.complement()).is_empty_language()
+            && other.intersection(&self.complement()).is_empty_language()
     }
 
     pub fn start_state(&self) -> StateId {
