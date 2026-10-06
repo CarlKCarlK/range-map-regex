@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 indexmap = "2"
-range-set-blaze = { path = "../range-set-blaze" }
+range-set-blaze = { git = "https://github.com/CarlKCarlK/range-set-blaze", branch = "regex" }
 unicode-ident = "1"
 
 [profile.dev]
