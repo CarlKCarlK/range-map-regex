@@ -4,9 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+const-structures = { path = "../const-structures", optional = true }
 indexmap = "2"
 range-set-blaze = { git = "https://github.com/CarlKCarlK/range-set-blaze", branch = "regex" }
 unicode-ident = "1"
+
+[dev-dependencies]
+trybuild = "1"
+
+[features]
+# Experimental keyword-based declaration macros (`dfa!`, `fsm!`, `float_literal!`).
+declare = ["dep:const-structures"]
 
 [profile.dev]
 opt-level = 3
@@ -17,3 +25,19 @@ overflow-checks = false
 opt-level = 3
 debug-assertions = false
 overflow-checks = false
+
+[[example]]
+name = "declare_float_literals"
+required-features = ["declare"]
+
+[[example]]
+name = "declare_identifier"
+required-features = ["declare"]
+
+[[test]]
+name = "declare_ui"
+required-features = ["declare"]
+
+[[test]]
+name = "declare"
+required-features = ["declare"]

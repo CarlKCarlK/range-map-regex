@@ -1,0 +1,18 @@
+error[E0425]: cannot find function `digti` in this scope
+ --> tests/ui/dfa_unknown_rule.rs:7:28
+  |
+3 | / dfa! {
+4 | |     pub Number {
+5 | |         start: Digits,
+6 | |         Digit { is: chars('0'..='9') },
+7 | |         Digits { is: many1(digti()) },
+  | |                            ^^^^^
+8 | |     }
+9 | | }
+  | |_- similarly named function `digit` defined here
+  |
+help: a function with a similar name exists
+  |
+7 -         Digits { is: many1(digti()) },
+7 +         Digits { is: many1(digit()) },
+  |

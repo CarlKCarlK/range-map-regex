@@ -1,0 +1,11 @@
+error[E0599]: no variant, associated function, or constant named `Begin` found for enum `Ident` in the current scope
+ --> tests/ui/fsm_unknown_start.rs:5:16
+  |
+3 | / fsm! {
+4 | |     pub Ident {
+5 | |         start: Begin,
+  | |                ^^^^^ variant, associated function, or constant not found in `Ident`
+6 | |         Start { on: [('a'..='z', Word)] },
+... |
+9 | | }
+  | |_- variant, associated function, or constant `Begin` not found for this enum

@@ -1,0 +1,17 @@
+error[E0425]: cannot find value `digts` in module `number`
+ --> tests/ui/dfa_misspelled_start.rs:5:16
+  |
+3 | / dfa! {
+4 | |     pub Number {
+5 | |         start: Digts,
+  | |                ^^^^^
+6 | |         Digits { is: many1(chars('0'..='9')) },
+7 | |     }
+8 | | }
+  | |_- similarly named function `digits` defined here
+  |
+help: a function with a similar name exists
+  |
+5 -         start: Digts,
+5 +         start: digits,
+  |

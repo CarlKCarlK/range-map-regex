@@ -1,0 +1,13 @@
+error[E0425]: cannot find value `Wrod` in this scope
+ --> tests/ui/fsm_unknown_target.rs:6:34
+  |
+6 |         Start { on: [('a'..='z', Wrod)] },
+  |                                  ^^^^
+7 |         Word { accept: true },
+  |         ---- similarly named unit variant `Word` defined here
+  |
+help: a unit variant with a similar name exists
+  |
+6 -         Start { on: [('a'..='z', Wrod)] },
+6 +         Start { on: [('a'..='z', Word)] },
+  |

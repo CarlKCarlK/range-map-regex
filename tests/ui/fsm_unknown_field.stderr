@@ -1,0 +1,5 @@
+error: unknown field `acept`; expected one of `accept`, `on`
+ --> tests/ui/fsm_unknown_field.rs:7:16
+  |
+7 |         Word { acept: true },
+  |                ^^^^^
