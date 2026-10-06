@@ -1,8 +1,8 @@
 # fsm-demo
 
-A demonstration of [`const-structures`](../../../const-structures) outside
+A demonstration of [`macro-schema`](https://crates.io/crates/macro-schema) outside
 embedded Rust. It is not part of `range-map-regex`'s API, and `range-map-regex`
-doesn't depend on `const-structures`.
+doesn't depend on `macro-schema`.
 
 - **Library author:** `src/lib.rs` defines `fsm!` with a schema and a template.
   The template generates an enum of states and an implementation of
@@ -32,13 +32,13 @@ fsm! {
 also checks at compile time that a state's ranges don't overlap, and gives each
 state rustdoc listing its transitions.
 
-But the `const-structures` template language allows repeated members only at the
+But the `macro-schema` template language allows repeated members only at the
 top level, so transitions can't be nested members of a state. They are one
 expression per state, `on: [(range, Target), ...]`. Every element must have the
 same type, so single characters are written `'.'..='.'`, and a `match`-like
 syntax (`'0'..='9' => Digits`) isn't possible.
 
-See `specs/CONST_STRUCTURES_EXPERIMENT.md` in the parent repository for the
+See `specs/MACRO_SCHEMA_EXPERIMENT.md` in the parent repository for the
 measurements and the approaches that were rejected.
 
 ## Running

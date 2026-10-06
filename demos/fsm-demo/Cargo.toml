@@ -1,12 +1,12 @@
 [package]
 name = "fsm-demo"
-description = "Demonstration: an `fsm!` declaration macro for range-map-regex, defined with const-structures."
+description = "Demonstration: an `fsm!` declaration macro for range-map-regex, defined with macro-schema."
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [dependencies]
-const-structures = { path = "../../../const-structures" }
+macro-schema = { version = "0.1.0", path = "../../../const-structures" }
 range-map-regex = { path = "../.." }
 
 [dev-dependencies]

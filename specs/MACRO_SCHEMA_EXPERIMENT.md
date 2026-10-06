@@ -1,10 +1,13 @@
-# Experiment: `const-structures` declarations for `range-map-regex`
+# Experiment: `macro-schema` declarations for `range-map-regex`
 
 <!-- todo0 consider deleting this spec once its conclusions are settled and the branch is merged or abandoned. -->
 
 Branch `experiment/const-structures-dfa`.
 
-**Question.** Does `const-structures` make it meaningfully easier for a library
+The framework was named `const-structures` when this experiment ran; it has
+since been renamed `macro-schema`. The branch keeps the old name.
+
+**Question.** Does `macro-schema` make it meaningfully easier for a library
 author to offer a pleasant, keyword-based API for finite-state machines, or does
 ordinary Rust already express these applications better?
 
@@ -16,13 +19,13 @@ experiment's lasting improvements are plain Rust:
 - an explicit state-table constructor;
 - a `StateMachine` trait.
 
-One macro, `fsm!`, earned its place as a **demonstration** of `const-structures`
+One macro, `fsm!`, earned its place as a **demonstration** of `macro-schema`
 outside embedded Rust. It lives in the self-contained crate `demos/fsm-demo`.
-`range-map-regex` itself doesn't depend on `const-structures`.
+`range-map-regex` itself doesn't depend on `macro-schema`.
 
 ## What was kept
 
-In `range-map-regex` (no `const-structures`):
+In `range-map-regex` (no `macro-schema`):
 
 | API | Purpose |
 | --- | --- |
@@ -34,7 +37,7 @@ In `range-map-regex` (no `const-structures`):
 
 The existing `Dfa` API is unchanged. Its methods still don't minimize.
 
-In `demos/fsm-demo` (depends on `const-structures` and `range-map-regex`):
+In `demos/fsm-demo` (depends on `macro-schema` and `range-map-regex`):
 
 - `src/lib.rs`: the library author's `fsm!`, a schema plus a template.
 - `examples/identifier.rs`: one recognizer written three ways: grammar
@@ -76,7 +79,7 @@ equivalent was a one-line struct literal.
 
 ### Diagnostics
 
-`const-structures` reports schema errors at the user's token, for example
+`macro-schema` reports schema errors at the user's token, for example
 ``unknown field `acept`; expected one of `accept`, `on` `` and
 ``duplicate member `Word` ``. For other mistakes, the generated code makes rustc
 point at the user's token. Examples are a misspelled target state
@@ -94,7 +97,7 @@ Two diagnostics were weak:
 
 | What | Cost |
 | --- | --- |
-| `const-structures` and `syn` 3 on a clean build | +1.4–1.7 s |
+| `macro-schema` and `syn` 3 on a clean build | +1.4–1.7 s |
 | Defining the macros, on a rebuild of the library | not measurable |
 | 50 `fsm!` declarations vs 50 hand-written enums, `cargo check` | 0.23 s vs 0.17 s (~1 ms per declaration) |
 | The same, `cargo build --release` | 3.25 s vs 3.21 s |
@@ -134,7 +137,7 @@ do. `Dfa`'s own methods stay unminimized, so existing state counts and
 - **`float_literal!`** was keyword options for one fixed grammar. Its generated
   struct, with `OPTIONS` and `dfa()`, was no better than an options struct
   literal with `..RUST`. That struct literal is ordinary Rust, with named fields,
-  defaults, and type checking. This is the case the `const-structures` README
+  defaults, and type checking. This is the case the `macro-schema` README
   itself says to leave to plain structs.
 - **`dfa!`** was named rules, each a cached, minimized `Dfa` function in a
   generated module. It was no shorter than the combinators (22 lines vs 18). Its
@@ -157,12 +160,12 @@ rustdoc lists each state's transitions.
 
 It stays out of the library's API because of the tradeoff:
 
-- **No nested repetition.** `const-structures` allows members only at the top
+- **No nested repetition.** `macro-schema` allows members only at the top
   level of a declaration, so a state can't have transitions as members. Each
   state's transitions are one opaque expression, `on: [(range, Target), …]`.
   - Every element must have the same type, so single characters are written
     `'.'..='.'`, and each range needs its own tuple.
-  - `const-structures` can't check or tabulate transitions. rustc checks target
+  - `macro-schema` can't check or tabulate transitions. rustc checks target
     names because the template wraps the value in `{ use Name::*; … }`.
   - A `match`-like syntax (`'0'..='9' => Digits`) isn't possible.
 - **The user does subset construction by hand.** Three states is pleasant. The
@@ -180,13 +183,13 @@ Other limitations of the four-construct template language:
 - There is no "reference to a member" field kind, so `start: Begin` can't be
   reported as "not a state".
 
-None of these were worked around by extending `const-structures`.
+None of these were worked around by extending `macro-schema`.
 
 ## Recommendation
 
 - Keep the plain-Rust improvements. They make `range-map-regex` better whatever
   happens to declaration macros.
-- Keep `fsm!` only as a standalone demonstration. It shows `const-structures`
+- Keep `fsm!` only as a standalone demonstration. It shows `macro-schema`
   generating items outside embedded Rust, with good diagnostics and generated
   documentation. It also shows the framework's main gap (nested members) on its
   first line. Present it with that limitation stated.
@@ -201,8 +204,9 @@ None of these were worked around by extending `const-structures`.
   `{ git = "https://github.com/CarlKCarlK/range-set-blaze", branch = "regex" }`.
   Once those APIs are merged into range-set-blaze's `main`, return to the path
   dependency or a release.
-- **The demo depends on `../../../const-structures` by path,** so it builds only
-  next to a local `const-structures` checkout. That is fine for a demonstration,
-  but it would need a version requirement once `const-structures` is published.
+- **The demo finds `macro-schema` through a local path.** Its dependency is
+  `{ version = "0.1.0", path = "../../../const-structures" }`, so it builds only
+  next to a local checkout (the directory still has the framework's old name).
+  Once `macro-schema` is published, the path can be dropped.
 - `examples/not_ident.rs` passes its assertions, then fails in Graphviz (`dot`
   rejects an HTML label over 16 KB). That failure predates this work.

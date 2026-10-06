@@ -1,4 +1,4 @@
-//! A demonstration of `const-structures` outside embedded Rust: an `fsm!` macro
+//! A demonstration of `macro-schema` outside embedded Rust: an `fsm!` macro
 //! that declares a finite-state machine for [`range_map_regex`].
 //!
 //! This crate is the *library author's* side. It defines [`fsm!`] with a schema
@@ -17,7 +17,7 @@
 //! at compile time that each state's ranges don't overlap, and it documents each
 //! state's transitions in rustdoc.
 //!
-//! But `const-structures` allows repeated members only at the top level of a
+//! But `macro-schema` allows repeated members only at the top level of a
 //! declaration, so a state can't contain its transitions as nested members. Each
 //! state's transitions are one opaque expression, `on: [(range, Target), ...]`:
 //!
@@ -29,13 +29,13 @@
 //!
 //! For that reason `fsm!` is a demonstration, not part of `range_map_regex`'s API.
 //! The experiment that led here is described in
-//! `specs/CONST_STRUCTURES_EXPERIMENT.md` in the `range-map-regex` repository.
+//! `specs/MACRO_SCHEMA_EXPERIMENT.md` in the `range-map-regex` repository.
 
 pub use range_map_regex::fsm::StateMachine;
 
-// `const-structures` macros expand through this path.
+// `macro-schema` macros expand through this path.
 #[doc(hidden)]
-pub use const_structures::expand as __const_structures_expand;
+pub use macro_schema::expand as __macro_schema_expand;
 
 /// Items the generated code names through `$crate`.
 #[doc(hidden)]
@@ -43,7 +43,7 @@ pub mod __private {
     pub use range_map_regex::fsm::{Table, is_disjoint};
 }
 
-const_structures::define! {
+macro_schema::define! {
     /// Declares a finite-state machine as an enum of its named states.
     ///
     /// Each member `Name { accept: BOOL, on: [(RANGE, Target), ...] }` is a state.
