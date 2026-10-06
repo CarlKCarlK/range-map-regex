@@ -6,7 +6,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-macro-schema = { version = "0.1.0", path = "../../../macro-schema" }
+macro-schema = "0.1.0"
 range-map-regex = { path = "../.." }
 
 [dev-dependencies]

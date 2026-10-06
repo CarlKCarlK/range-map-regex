@@ -204,9 +204,5 @@ None of these were worked around by extending `macro-schema`.
   `{ git = "https://github.com/CarlKCarlK/range-set-blaze", branch = "regex" }`.
   Once those APIs are merged into range-set-blaze's `main`, return to the path
   dependency or a release.
-- **The demo finds `macro-schema` through a local path.** Its dependency is
-  `{ version = "0.1.0", path = "../../../macro-schema" }`, so it builds only
-  next to a local `macro-schema` checkout.
-  Once `macro-schema` is published, the path can be dropped.
 - `examples/not_ident.rs` passes its assertions, then fails in Graphviz (`dot`
   rejects an HTML label over 16 KB). That failure predates this work.
