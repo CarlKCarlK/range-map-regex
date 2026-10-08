@@ -262,7 +262,7 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
             let merged_out = self.transitions[left_state.id()]
                 .inner_join(&other.transitions[right_state.id()])
-                .map_values(|&(left_next, right_next)| {
+                .transform_values(|&(left_next, right_next)| {
                     let next_pair = (left_next, right_next);
                     if let Some(existing) = pair_to_state.get(&next_pair) {
                         *existing
@@ -296,7 +296,7 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
             let merged_out = self.transitions[left_state.id()]
                 .inner_join(&other.transitions[right_state.id()])
-                .map_values(|&(left_next, right_next)| {
+                .transform_values(|&(left_next, right_next)| {
                     let next_pair = (left_next, right_next);
                     if let Some(existing) = pair_to_state.get(&next_pair) {
                         *existing
@@ -371,7 +371,7 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
             let right_next_map = right.subset_transition_map(&right_sources);
             let merged_out = self.transitions[left_state.id()]
                 .inner_join(&right_next_map)
-                .map_values(|(left_next, right_next_active)| {
+                .transform_values(|(left_next, right_next_active)| {
                     let next_right_active = right_next_active.clone();
                     let next_key = (*left_next, next_right_active.clone());
                     if let Some(existing) = key_to_state.get(&next_key) {
@@ -411,7 +411,7 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         while let Some(((active, _boundary_kind), &state_id)) = key_to_state.get_index(cursor) {
             let active = active.clone();
             let next_map = self.subset_transition_map(&active);
-            let merged_out = next_map.map_values(|next_active| {
+            let merged_out = next_map.transform_values(|next_active| {
                 let mut next_active = next_active.clone();
                 let boundary_kind = self.any_accepting(&next_active);
                 if boundary_kind == StateKind::Accepting {
@@ -548,7 +548,7 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         for block in 0..block_count {
             let rep = representative[block].expect("block has a representative");
             let state = block_to_state[block].expect("block has a mapped state");
-            let mapped = self.transitions[rep].map_values(|next| {
+            let mapped = self.transitions[rep].transform_values(|next| {
                 block_to_state[block_of[next.id()].expect("reachable state has a block")]
                     .expect("block has a mapped state")
             });
@@ -665,13 +665,13 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         };
 
         // For the 1st source, the transition is to the singleton set of its target on each symbol.
-        let mut acc = self.transitions[first.id()].map_values(|next| StateIdSet::from_state(*next));
+        let mut acc = self.transitions[first.id()].transform_values(|next| StateIdSet::from_state(*next));
 
         // For each subsequent source, intersect the current map with the singleton map of its targets, and union the targets into the resulting sets.
         for source in iter {
             acc = acc
                 .inner_join(&self.transitions[source.id()])
-                .map_values(|(next_set, next)| next_set.with_inserted(*next));
+                .transform_values(|(next_set, next)| next_set.with_inserted(*next));
         }
 
         acc
