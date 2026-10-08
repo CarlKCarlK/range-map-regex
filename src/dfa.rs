@@ -2,7 +2,7 @@ use std::ops::{BitAnd, BitOr, RangeInclusive};
 
 use crate::state_id_set::StateIdSet;
 use indexmap::IndexMap;
-use range_set_blaze::{Integer, RangeMapBlaze, RangeSetBlaze};
+use range_set_blaze::{Integer, MultiwayRangeMapBlazeRef, RangeMapBlaze, RangeSetBlaze};
 
 const CHAR_UNIVERSE: RangeInclusive<char> = char::MIN..=char::MAX;
 
@@ -657,24 +657,19 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         &self,
         source_indices: &StateIdSet,
     ) -> RangeMapBlaze<S, StateIdSet> {
-        let mut iter = source_indices.iter();
-
-        // If empty, the transition is to the empty set on all symbols.
-        let Some(first) = iter.next() else {
-            return RangeMapBlaze::universe_with(&StateIdSet::new());
-        };
-
-        // For the 1st source, the transition is to the singleton set of its target on each symbol.
-        let mut acc = self.transitions[first.id()].transform_values(|next| StateIdSet::from_state(*next));
-
-        // For each subsequent source, intersect the current map with the singleton map of its targets, and union the targets into the resulting sets.
-        for source in iter {
-            acc = acc
-                .inner_join(&self.transitions[source.id()])
-                .transform_values(|(next_set, next)| next_set.with_inserted(*next));
-        }
-
-        acc
+        // One k-way join over the sources' transition maps: on each symbol range covered by all of
+        // them (every DFA map is universal, so everywhere), collect their targets into a set. With no
+        // sources, the join is the universal range with the empty set.
+        source_indices
+            .iter()
+            .map(|source| &self.transitions[source.id()])
+            .inner_join(|nexts| {
+                let mut next_set = StateIdSet::new();
+                for next in nexts {
+                    next_set.insert(**next);
+                }
+                next_set
+            })
     }
 }
 
