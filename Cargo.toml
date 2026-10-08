@@ -12,8 +12,10 @@ default-members = ["."]
 indexmap = "2"
 # TODO Return to `path = "../range-set-blaze"` (or a release) once
 # `RangeMapBlaze::universe_with` and `inner_join` are merged into range-set-blaze's
-# main branch. Until then they exist only on its `regex` branch.
-range-set-blaze = { git = "https://github.com/CarlKCarlK/range-set-blaze", branch = "regex" }
+# main branch. Until then they exist only on its `regex` branch. (may no longer apply)
+# Now using the local checkout; check out range-set-blaze's `inner-join-universe`
+# branch (PR #36) for `universe_with` and `inner_join`. Switch to a release once one ships.
+range-set-blaze = { path = "../range-set-blaze" }
 unicode-ident = "1"
 
 [profile.dev]
