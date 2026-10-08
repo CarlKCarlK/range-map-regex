@@ -2,21 +2,9 @@ use std::ops::{BitAnd, BitOr, RangeInclusive};
 
 use crate::state_id_set::StateIdSet;
 use indexmap::IndexMap;
-use range_set_blaze::{Integer, RangeMapBlaze, RangeSetBlaze, SortedDisjointMap};
+use range_set_blaze::{Integer, RangeMapBlaze, RangeSetBlaze};
 
 const CHAR_UNIVERSE: RangeInclusive<char> = char::MIN..=char::MAX;
-
-fn map_values<K, V, W>(
-    map: &RangeMapBlaze<K, V>,
-    mut f: impl FnMut(&V) -> W,
-) -> RangeMapBlaze<K, W>
-where
-    K: Integer,
-    V: Eq + Clone,
-    W: Eq + Clone,
-{
-    RangeMapBlaze::from_iter(map.range_values().map(|(range, value)| (range, f(value))))
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct StateId {
@@ -272,24 +260,20 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         // For each new state that we haven't visited yet....
         let mut cursor = 0;
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
-            let merged_out = RangeMapBlaze::from_iter(
-                self.transitions[left_state.id()]
-                    .range_values()
-                    .inner_join(other.transitions[right_state.id()].range_values())
-                    .map(|(range, (left_next, right_next))| {
-                        let next_pair = (*left_next, *right_next);
-                        let next = if let Some(existing) = pair_to_state.get(&next_pair) {
-                            *existing
-                        } else {
-                            let state_kind =
-                                self.state_kind(next_pair.0) | other.state_kind(next_pair.1);
-                            let new_id = dfa.new_state(state_kind);
-                            pair_to_state.insert(next_pair, new_id);
-                            new_id
-                        };
-                        (range, next)
-                    }),
-            );
+            let merged_out = self.transitions[left_state.id()]
+                .inner_join(&other.transitions[right_state.id()])
+                .map_values(|&(left_next, right_next)| {
+                    let next_pair = (left_next, right_next);
+                    if let Some(existing) = pair_to_state.get(&next_pair) {
+                        *existing
+                    } else {
+                        let state_kind =
+                            self.state_kind(next_pair.0) | other.state_kind(next_pair.1);
+                        let new_id = dfa.new_state(state_kind);
+                        pair_to_state.insert(next_pair, new_id);
+                        new_id
+                    }
+                });
 
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
@@ -310,24 +294,20 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
 
         let mut cursor = 0;
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
-            let merged_out = RangeMapBlaze::from_iter(
-                self.transitions[left_state.id()]
-                    .range_values()
-                    .inner_join(other.transitions[right_state.id()].range_values())
-                    .map(|(range, (left_next, right_next))| {
-                        let next_pair = (*left_next, *right_next);
-                        let next = if let Some(existing) = pair_to_state.get(&next_pair) {
-                            *existing
-                        } else {
-                            let state_kind =
-                                self.state_kind(next_pair.0) & other.state_kind(next_pair.1);
-                            let new_id = dfa.new_state(state_kind);
-                            pair_to_state.insert(next_pair, new_id);
-                            new_id
-                        };
-                        (range, next)
-                    }),
-            );
+            let merged_out = self.transitions[left_state.id()]
+                .inner_join(&other.transitions[right_state.id()])
+                .map_values(|&(left_next, right_next)| {
+                    let next_pair = (left_next, right_next);
+                    if let Some(existing) = pair_to_state.get(&next_pair) {
+                        *existing
+                    } else {
+                        let state_kind =
+                            self.state_kind(next_pair.0) & other.state_kind(next_pair.1);
+                        let new_id = dfa.new_state(state_kind);
+                        pair_to_state.insert(next_pair, new_id);
+                        new_id
+                    }
+                });
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
         }
@@ -389,25 +369,21 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
             }
 
             let right_next_map = right.subset_transition_map(&right_sources);
-            let merged_out = RangeMapBlaze::from_iter(
-                self.transitions[left_state.id()]
-                    .range_values()
-                    .inner_join(right_next_map.range_values())
-                    .map(|(range, (left_next, right_next_active))| {
-                        let next_right_active = right_next_active.clone();
-                        let next_key = (*left_next, next_right_active.clone());
-                        let next = if let Some(existing) = key_to_state.get(&next_key) {
-                            *existing
-                        } else {
-                            let state_kind =
-                                self.concat_state_kind(next_key.0, right, &next_right_active);
-                            let new_id = dfa.new_state(state_kind);
-                            key_to_state.insert(next_key, new_id);
-                            new_id
-                        };
-                        (range, next)
-                    }),
-            );
+            let merged_out = self.transitions[left_state.id()]
+                .inner_join(&right_next_map)
+                .map_values(|(left_next, right_next_active)| {
+                    let next_right_active = right_next_active.clone();
+                    let next_key = (*left_next, next_right_active.clone());
+                    if let Some(existing) = key_to_state.get(&next_key) {
+                        *existing
+                    } else {
+                        let state_kind =
+                            self.concat_state_kind(next_key.0, right, &next_right_active);
+                        let new_id = dfa.new_state(state_kind);
+                        key_to_state.insert(next_key, new_id);
+                        new_id
+                    }
+                });
 
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
@@ -435,28 +411,25 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         while let Some(((active, _boundary_kind), &state_id)) = key_to_state.get_index(cursor) {
             let active = active.clone();
             let next_map = self.subset_transition_map(&active);
-            let merged_out = RangeMapBlaze::from_iter(next_map.range_values().map(
-                |(range, next_active)| {
-                    let mut next_active = next_active.clone();
-                    let boundary_kind = self.any_accepting(&next_active);
-                    if boundary_kind == StateKind::Accepting {
-                        // Once we can end one repetition, the next repetition may start immediately.
-                        // Include the original start state in the active subset for following input.
-                        // todo0 this subset expansion may be optimized.
-                        next_active.insert(self.start);
-                    }
+            let merged_out = next_map.map_values(|next_active| {
+                let mut next_active = next_active.clone();
+                let boundary_kind = self.any_accepting(&next_active);
+                if boundary_kind == StateKind::Accepting {
+                    // Once we can end one repetition, the next repetition may start immediately.
+                    // Include the original start state in the active subset for following input.
+                    // todo0 this subset expansion may be optimized.
+                    next_active.insert(self.start);
+                }
 
-                    let next_key = (next_active.clone(), boundary_kind);
-                    let next = if let Some(existing) = key_to_state.get(&next_key) {
-                        *existing
-                    } else {
-                        let new_id = dfa.new_state(boundary_kind);
-                        key_to_state.insert(next_key, new_id);
-                        new_id
-                    };
-                    (range, next)
-                },
-            ));
+                let next_key = (next_active.clone(), boundary_kind);
+                if let Some(existing) = key_to_state.get(&next_key) {
+                    *existing
+                } else {
+                    let new_id = dfa.new_state(boundary_kind);
+                    key_to_state.insert(next_key, new_id);
+                    new_id
+                }
+            });
 
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
@@ -575,7 +548,7 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         for block in 0..block_count {
             let rep = representative[block].expect("block has a representative");
             let state = block_to_state[block].expect("block has a mapped state");
-            let mapped = map_values(&self.transitions[rep], |next| {
+            let mapped = self.transitions[rep].map_values(|next| {
                 block_to_state[block_of[next.id()].expect("reachable state has a block")]
                     .expect("block has a mapped state")
             });
@@ -692,15 +665,13 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         };
 
         // For the 1st source, the transition is to the singleton set of its target on each symbol.
-        let mut acc = map_values(&self.transitions[first.id()], |next| StateIdSet::from_state(*next));
+        let mut acc = self.transitions[first.id()].map_values(|next| StateIdSet::from_state(*next));
 
         // For each subsequent source, intersect the current map with the singleton map of its targets, and union the targets into the resulting sets.
         for source in iter {
-            acc = RangeMapBlaze::from_iter(
-                acc.range_values()
-                    .inner_join(self.transitions[source.id()].range_values())
-                    .map(|(range, (next_set, next))| (range, next_set.with_inserted(*next))),
-            );
+            acc = acc
+                .inner_join(&self.transitions[source.id()])
+                .map_values(|(next_set, next)| next_set.with_inserted(*next));
         }
 
         acc
