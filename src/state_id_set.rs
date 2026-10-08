@@ -1,13 +1,20 @@
+use std::rc::Rc;
+
 use crate::dfa::StateId;
 
+// `StateIdSet` is used as a `RangeMapBlaze` value, and range-set-blaze clones values whenever it
+// splits a range, so cloning must be cheap. The `Rc` makes a clone a reference-count bump;
+// `insert` copies the vector only when it is shared (copy-on-write via `Rc::make_mut`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct StateIdSet {
-    active: Vec<bool>,
+    active: Rc<Vec<bool>>,
 }
 
 impl StateIdSet {
     pub(crate) fn new() -> Self {
-        Self { active: Vec::new() }
+        Self {
+            active: Rc::new(Vec::new()),
+        }
     }
 
     pub(crate) fn from_state(state: StateId) -> Self {
@@ -15,10 +22,11 @@ impl StateIdSet {
     }
 
     pub(crate) fn insert(&mut self, state: StateId) {
-        if state.id() >= self.active.len() {
-            self.active.resize(state.id() + 1, false);
+        let active = Rc::make_mut(&mut self.active);
+        if state.id() >= active.len() {
+            active.resize(state.id() + 1, false);
         }
-        self.active[state.id()] = true;
+        active[state.id()] = true;
     }
 
     pub(crate) fn with_inserted(&self, state: StateId) -> Self {
