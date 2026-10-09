@@ -266,10 +266,9 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         // For each new state that we haven't visited yet....
         let mut cursor = 0;
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
-            let merged_out = self.transitions[left_state.id()]
-                .range_values()
-                .inner_join(other.transitions[right_state.id()].range_values())
-                .transform_values(|(left_next, right_next)| {
+            let merged_out = self.transitions[left_state.id()].inner_join(
+                &other.transitions[right_state.id()],
+                |left_next, right_next| {
                     let next_pair = (*left_next, *right_next);
                     if let Some(existing) = pair_to_state.get(&next_pair) {
                         *existing
@@ -280,8 +279,8 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
                         pair_to_state.insert(next_pair, new_id);
                         new_id
                     }
-                })
-                .into_range_map_blaze();
+                },
+            );
 
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
@@ -302,10 +301,9 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
 
         let mut cursor = 0;
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
-            let merged_out = self.transitions[left_state.id()]
-                .range_values()
-                .inner_join(other.transitions[right_state.id()].range_values())
-                .transform_values(|(left_next, right_next)| {
+            let merged_out = self.transitions[left_state.id()].inner_join(
+                &other.transitions[right_state.id()],
+                |left_next, right_next| {
                     let next_pair = (*left_next, *right_next);
                     if let Some(existing) = pair_to_state.get(&next_pair) {
                         *existing
@@ -316,8 +314,8 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
                         pair_to_state.insert(next_pair, new_id);
                         new_id
                     }
-                })
-                .into_range_map_blaze();
+                },
+            );
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
         }
