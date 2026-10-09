@@ -2,7 +2,9 @@ use std::ops::{BitAnd, BitOr, RangeInclusive};
 
 use crate::state_id_set::StateIdSet;
 use indexmap::IndexMap;
-use range_set_blaze::{Integer, MultiwayRangeMapBlazeRef, RangeMapBlaze, RangeSetBlaze};
+use range_set_blaze::{
+    Integer, MultiwayRangeMapBlazeRef, RangeMapBlaze, RangeSetBlaze, SortedDisjointMap,
+};
 
 const CHAR_UNIVERSE: RangeInclusive<char> = char::MIN..=char::MAX;
 
@@ -261,9 +263,10 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         let mut cursor = 0;
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
             let merged_out = self.transitions[left_state.id()]
-                .inner_join(&other.transitions[right_state.id()])
-                .transform_values(|&(left_next, right_next)| {
-                    let next_pair = (left_next, right_next);
+                .range_values()
+                .inner_join(other.transitions[right_state.id()].range_values())
+                .transform_values(|(left_next, right_next)| {
+                    let next_pair = (*left_next, *right_next);
                     if let Some(existing) = pair_to_state.get(&next_pair) {
                         *existing
                     } else {
@@ -273,7 +276,8 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
                         pair_to_state.insert(next_pair, new_id);
                         new_id
                     }
-                });
+                })
+                .into_range_map_blaze();
 
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
@@ -295,9 +299,10 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
         let mut cursor = 0;
         while let Some((&(left_state, right_state), &state_id)) = pair_to_state.get_index(cursor) {
             let merged_out = self.transitions[left_state.id()]
-                .inner_join(&other.transitions[right_state.id()])
-                .transform_values(|&(left_next, right_next)| {
-                    let next_pair = (left_next, right_next);
+                .range_values()
+                .inner_join(other.transitions[right_state.id()].range_values())
+                .transform_values(|(left_next, right_next)| {
+                    let next_pair = (*left_next, *right_next);
                     if let Some(existing) = pair_to_state.get(&next_pair) {
                         *existing
                     } else {
@@ -307,7 +312,8 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
                         pair_to_state.insert(next_pair, new_id);
                         new_id
                     }
-                });
+                })
+                .into_range_map_blaze();
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
         }
@@ -370,7 +376,8 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
 
             let right_next_map = right.subset_transition_map(&right_sources);
             let merged_out = self.transitions[left_state.id()]
-                .inner_join(&right_next_map)
+                .range_values()
+                .inner_join(right_next_map.range_values())
                 .transform_values(|(left_next, right_next_active)| {
                     let next_right_active = right_next_active.clone();
                     let next_key = (*left_next, next_right_active.clone());
@@ -383,7 +390,8 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
                         key_to_state.insert(next_key, new_id);
                         new_id
                     }
-                });
+                })
+                .into_range_map_blaze();
 
             dfa.set_transitions(state_id, merged_out);
             cursor += 1;
@@ -602,6 +610,8 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
     /// assert!(!a_plus.is_equivalent(&Dfa::from_char('a').star()));
     /// ```
     pub fn is_equivalent(&self, other: &Self) -> bool {
+        // If performance becomes an issue, visit reachable state pairs with streaming inner joins
+        // and stop on differing acceptance, avoiding the temporary complement and intersection DFAs.
         self.intersection(&other.complement()).is_empty_language()
             && other.intersection(&self.complement()).is_empty_language()
     }
