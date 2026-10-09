@@ -173,3 +173,51 @@ fn disjointness() {
     assert!(!is_disjoint(OVERLAP));
     assert!(!is_disjoint(EMPTY));
 }
+
+#[test]
+fn concat_matches_all_input_splits() {
+    let mut dfas = vec![Dfa::<u8>::empty(), Dfa::<u8>::epsilon()];
+    for accepting in 0..4 {
+        dfas.push(Dfa::from_transitions(
+            0,
+            &[accepting & 1 != 0, accepting & 2 != 0],
+            &[
+                vec![(0..=127, 0), (128..=255, 1)],
+                vec![(0..=0, 0), (1..=255, 1)],
+            ],
+        ));
+    }
+    // Include empty input and every word of up to four symbols from this boundary alphabet.
+    let mut inputs = vec![Vec::new()];
+    let mut words = vec![Vec::new()];
+    for _ in 0..4 {
+        words = words
+            .iter()
+            .flat_map(|word| {
+                [0, 127, 128, 255].map(|symbol| {
+                    let mut next = word.clone();
+                    next.push(symbol);
+                    next
+                })
+            })
+            .collect();
+        inputs.extend(words.iter().cloned());
+    }
+    for (left_index, left) in dfas.iter().enumerate() {
+        for (right_index, right) in dfas.iter().enumerate() {
+            let concatenated = left.concat(right);
+            for input in &inputs {
+                // Concatenation accepts exactly when some split is accepted by both operands.
+                let expected = (0..=input.len()).any(|split| {
+                    left.is_match_symbols(input[..split].iter().copied())
+                        && right.is_match_symbols(input[split..].iter().copied())
+                });
+                assert_eq!(
+                    concatenated.is_match_symbols(input.iter().copied()),
+                    expected,
+                    "left={left_index}, right={right_index}, input={input:?}",
+                );
+            }
+        }
+    }
+}

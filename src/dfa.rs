@@ -1,9 +1,13 @@
-use std::ops::{BitAnd, BitOr, RangeInclusive};
+use std::{
+    iter::once,
+    ops::{BitAnd, BitOr, RangeInclusive},
+};
 
 use crate::state_id_set::StateIdSet;
 use indexmap::IndexMap;
 use range_set_blaze::{
-    Integer, MultiwayRangeMapBlazeRef, RangeMapBlaze, RangeSetBlaze, SortedDisjointMap,
+    Integer, MultiwayRangeMapBlazeRef, MultiwaySortedDisjointMap, RangeMapBlaze, RangeSetBlaze,
+    SortedDisjointMap,
 };
 
 const CHAR_UNIVERSE: RangeInclusive<char> = char::MIN..=char::MAX;
@@ -374,13 +378,22 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
                 right_sources.insert(right.start);
             }
 
-            let right_next_map = right.subset_transition_map(&right_sources);
-            let merged_out = self.transitions[left_state.id()]
-                .range_values()
-                .inner_join(right_next_map.range_values())
-                .transform_values(|(left_next, right_next_active)| {
-                    let next_right_active = right_next_active.clone();
-                    let next_key = (*left_next, next_right_active.clone());
+            // All transition maps are universal. Join the left stream first, followed by the
+            // active right streams, so no intermediate map of right-state sets is needed.
+            // With no right sources, the sole input is the left stream and the right set is empty.
+            let merged_out = once(self.transitions[left_state.id()].range_values())
+                .chain(
+                    right_sources
+                        .iter()
+                        .map(|source| right.transitions[source.id()].range_values()),
+                )
+                .inner_join(|nexts| {
+                    let left_next = *nexts[0];
+                    let mut next_right_active = StateIdSet::new();
+                    for next in &nexts[1..] {
+                        next_right_active.insert(**next);
+                    }
+                    let next_key = (left_next, next_right_active.clone());
                     if let Some(existing) = key_to_state.get(&next_key) {
                         *existing
                     } else {
