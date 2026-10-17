@@ -14,7 +14,8 @@ indexmap = "2"
 # `RangeMapBlaze::universe_with` and `inner_join` are merged into range-set-blaze's
 # main branch. Until then they exist only on its `regex` branch. (may no longer apply)
 # range-set-blaze 0.8.0 is the first release with `universe_with` and `inner_join`.
-range-set-blaze = "0.8.0"
+# Testing the range-set-blaze `fearless-simd` branch (from_slice/from_slices on stable).
+range-set-blaze = { path = "../range-set-blaze" }
 unicode-ident = "1"
 
 [profile.dev]
