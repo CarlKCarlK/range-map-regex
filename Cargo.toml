@@ -18,6 +18,10 @@ indexmap = "2"
 range-set-blaze = { path = "../range-set-blaze" }
 unicode-ident = "1"
 
+[[bench]]
+name = "dfa"
+harness = false
+
 [profile.dev]
 opt-level = 3
 debug-assertions = false

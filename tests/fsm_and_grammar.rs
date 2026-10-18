@@ -45,6 +45,63 @@ fn equivalence_and_emptiness() {
 }
 
 #[test]
+fn minimize_merges_equivalent_states_with_different_range_boundaries() {
+    let dfa = Dfa::from_transitions(
+        0,
+        &[false, false, false, true, true],
+        &[
+            vec![('x'..='x', 1), ('y'..='y', 2)],
+            vec![('a'..='m', 3), ('n'..='z', 4)],
+            vec![('a'..='z', 3)],
+            vec![],
+            vec![],
+        ],
+    );
+    let minimized = dfa.minimize();
+    // Start, one shared middle state, accepting state, and rejecting sink.
+    assert_eq!(minimized.state_count(), 4);
+    assert!(dfa.is_equivalent(&minimized));
+    assert_eq!(minimized.minimize().state_count(), 4);
+    for input in ["xa", "xm", "xn", "xz", "ya", "ym", "yn", "yz"] {
+        assert!(minimized.is_match(input), "{input}");
+    }
+    for input in ["", "x", "y", "a", "xA", "yzx"] {
+        assert!(!minimized.is_match(input), "{input}");
+    }
+}
+
+#[test]
+fn string_matching_with_sink_rejection_agrees_with_full_consumption() {
+    let literal = Dfa::string("ab");
+    let machines = [
+        literal.clone(),
+        literal.complement(),
+        literal.star(),
+        Dfa::empty(),
+        Dfa::epsilon(),
+        Dfa::from_char('é').plus(),
+    ];
+    for dfa in machines {
+        let mut inputs = vec![String::new()];
+        for _ in 0..4 {
+            let mut next = Vec::new();
+            for prefix in &inputs {
+                for ch in ['a', 'b', '!', 'é'] {
+                    next.push(format!("{prefix}{ch}"));
+                }
+            }
+            inputs.extend(next);
+        }
+        for input in inputs {
+            let mut symbols = input.chars();
+            let expected = dfa.is_match_symbols(&mut symbols);
+            assert_eq!(symbols.next(), None, "iterator must be fully consumed");
+            assert_eq!(dfa.is_match(&input), expected, "{input:?}");
+        }
+    }
+}
+
+#[test]
 fn combinators_match_dfa_methods() {
     let digit = chars('0'..='9');
     let combinators = seq([

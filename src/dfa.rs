@@ -1,12 +1,13 @@
 use std::{
     iter::once,
     ops::{BitAnd, BitOr, RangeInclusive},
+    sync::OnceLock,
 };
 
 use crate::state_id_set::StateIdSet;
 use indexmap::IndexMap;
 use range_set_blaze::{
-    Integer, MultiwayRangeMapBlazeRef, MultiwaySortedDisjointMap, RangeMapBlaze, RangeSetBlaze,
+    Integer, MultiwayRangeMapBlazeRef, MultiwaySortedDisjointMap, Owned, RangeMapBlaze, RangeSetBlaze,
     SortedDisjointMap,
 };
 
@@ -240,7 +241,7 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
     }
 
     fn step(&self, state: StateId, symbol: S) -> StateId {
-        self.assert_invariants();
+        // Callers validate the DFA at operation boundaries, so each symbol needs only a lookup.
         self.transitions[state.id()][symbol]
     }
 
@@ -505,15 +506,14 @@ impl<S: Integer + std::hash::Hash> Dfa<S> {
             let mut next_block_of: Vec<Option<usize>> = vec![None; state_count];
 
             for &state in &reachable_states {
+                // Compare transitions to partitions, not original states. RSB merges touching
+                // ranges with equal partition IDs, removing boundaries that no longer matter.
                 let transitions = self.transitions[state]
                     .range_values()
-                    .map(|(range, next)| {
-                        (
-                            *range.start(),
-                            *range.end(),
-                            block_of[next.id()].expect("reachable state has a block"),
-                        )
+                    .transform_values(|next| {
+                        block_of[next.id()].expect("reachable state has a block")
                     })
+                    .map(|(range, Owned(block))| (*range.start(), *range.end(), block))
                     .collect();
                 let signature = (self.state_kinds[state], transitions);
                 let block = if let Some(existing) = signature_to_block.get(&signature) {
@@ -732,11 +732,20 @@ impl Dfa<char> {
     }
 
     pub fn xid_start() -> Self {
-        Self::from_chars_where(unicode_ident::is_xid_start)
+        static SET: OnceLock<RangeSetBlaze<char>> = OnceLock::new();
+        // Scan Unicode once; each returned DFA owns its character-class transitions.
+        Self::from_char_set(
+            SET.get_or_init(|| Self::char_set_from_predicate(unicode_ident::is_xid_start))
+                .clone(),
+        )
     }
 
     pub fn xid_continue() -> Self {
-        Self::from_chars_where(unicode_ident::is_xid_continue)
+        static SET: OnceLock<RangeSetBlaze<char>> = OnceLock::new();
+        Self::from_char_set(
+            SET.get_or_init(|| Self::char_set_from_predicate(unicode_ident::is_xid_continue))
+                .clone(),
+        )
     }
 
     pub fn string(s: &str) -> Self {
@@ -746,9 +755,29 @@ impl Dfa<char> {
 
     pub fn is_match(&self, input: &str) -> bool {
         self.assert_invariants();
+        // A minimized DFA has at most one rejecting sink. Finding one also helps
+        // unminimized DFAs, without allocating a per-state table on every match.
+        let reject_sink = self.transitions.iter().enumerate().find_map(|(id, map)| {
+            (self.state_kinds[id] == StateKind::Rejecting
+                && map.range_values_len() == 1
+                && map
+                    .range_values()
+                    .next()
+                    .is_some_and(|(_, next)| next.id() == id))
+            .then_some(StateId { id })
+        });
+        let Some(reject_sink) = reject_sink else {
+            return self.is_match_symbols(input.chars());
+        };
         let mut state = self.start;
+        if state == reject_sink {
+            return false;
+        }
         for ch in input.chars() {
             state = self.step(state, ch);
+            if state == reject_sink {
+                return false;
+            }
         }
         self.is_accepting(state)
     }
